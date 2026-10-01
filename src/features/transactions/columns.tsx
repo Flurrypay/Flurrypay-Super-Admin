@@ -1,6 +1,13 @@
 "use client";
 
-import { ArrowDownLeftIcon, ArrowUpRightIcon, RepeatIcon } from "lucide-react";
+import {
+  ArrowDownLeftIcon,
+  ArrowRightIcon,
+  ArrowUpRightIcon,
+  FlagIcon,
+  RepeatIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 import type { DataColumn } from "@/components/data-table/types";
@@ -8,10 +15,14 @@ import { Amount } from "@/components/format/amount";
 import { DateTime } from "@/components/format/date-time";
 import { Identifier } from "@/components/format/identifier";
 import { resolveStatus, StatusBadge } from "@/components/status/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-import type { Transaction } from "./api";
+import { isFlagged, type Transaction } from "./api";
 import {
   type Direction,
+  flagReasonLabel,
+  flagSeverityTone,
   TRANSACTION_STATUS,
   transactionDirection,
   transactionTypeLabel,
@@ -33,6 +44,76 @@ export function TransactionType({ type }: { type: string }) {
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       {meta && <meta.icon className={`size-3.5 ${meta.className}`} aria-label={meta.label} />}
       {transactionTypeLabel(type)}
+    </span>
+  );
+}
+
+/**
+ * The flag, as a badge.
+ *
+ * Three states, not two: never flagged (blank, so the column is quiet on the
+ * overwhelming majority of rows), open flag (severity-toned, with the reason),
+ * and cleared (muted, because the history matters but the work is done).
+ */
+function FlagCell({ tx }: { tx: Transaction }) {
+  if (isFlagged(tx)) {
+    return (
+      <Badge tone={flagSeverityTone(tx.flagSeverity)}>
+        <FlagIcon aria-hidden />
+        {flagReasonLabel(tx.flagReason)}
+      </Badge>
+    );
+  }
+  if (tx.flaggedAt) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Cleared<span className="sr-only">. This transaction was flagged and reviewed.</span>
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">—</span>;
+}
+
+/**
+ * Balance before → after, in one cell.
+ *
+ * Both numbers together, because either alone answers nothing: "₦12,400" after
+ * a transaction only means something next to what it was before. The arrow is
+ * decorative and hidden from assistive tech, which gets the full sentence
+ * instead.
+ */
+function WalletBalanceCell({ tx }: { tx: Transaction }) {
+  const movement = tx.walletMovement;
+  if (!movement) {
+    return (
+      <span className="text-muted-foreground">
+        —<span className="sr-only">No naira movement recorded for this transaction.</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums">
+      <span className="text-muted-foreground">
+        <Amount value={movement.balanceBefore} currency="NGN" className="font-normal" />
+      </span>
+      <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+      <Amount value={movement.balanceAfter} currency="NGN" />
+      {movement.hasGap && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <TriangleAlertIcon className="size-3.5 text-warning" aria-hidden />
+              <span className="sr-only">
+                The ledger entries for this transaction do not join up.
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            Another balance change happened in between these entries. Open the transaction to see
+            them.
+          </TooltipContent>
+        </Tooltip>
+      )}
     </span>
   );
 }
@@ -109,6 +190,18 @@ export function transactionColumns({
       exportValue: (tx) => tx.currency,
     },
     {
+      id: "walletBalance",
+      header: "Wallet balance",
+      priority: "secondary",
+      description:
+        "The customer's naira balance immediately before and after this transaction, from the wallet ledger. Blank when the transaction did not move naira.",
+      cell: (tx) => <WalletBalanceCell tx={tx} />,
+      // Exported as two values rather than the arrow string: a spreadsheet
+      // wants numbers it can subtract, not a label it has to parse.
+      exportValue: (tx) => tx.walletMovement?.balanceAfter ?? "",
+      exportKeys: ["walletBalanceBefore", "walletBalanceAfter"],
+    },
+    {
       id: "fee",
       header: "Fee",
       align: "right",
@@ -129,6 +222,20 @@ export function transactionColumns({
       sortKey: "status",
       cell: (tx) => <StatusBadge status={resolveStatus(TRANSACTION_STATUS, tx.status)} />,
       exportValue: (tx) => tx.status,
+    },
+    {
+      id: "flag",
+      header: "Flag",
+      sortKey: "flaggedAt",
+      description:
+        "An administrator marked this for review. Internal only — the customer is never shown it.",
+      cell: (tx) => <FlagCell tx={tx} />,
+      // Exported as the reason rather than a boolean: a spreadsheet column of
+      // "true" answers nothing, and the whole point of the fixed reason set is
+      // that it can be counted.
+      exportValue: (tx) =>
+        isFlagged(tx) ? (tx.flagReason ?? "FLAGGED") : tx.flaggedAt ? "CLEARED" : "",
+      exportKeys: ["flagReason", "flagSeverity", "flaggedAt", "flagClearedAt"],
     },
     {
       id: "provider",

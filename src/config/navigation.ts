@@ -2,6 +2,7 @@ import {
   ArrowLeftRightIcon,
   BarChart3Icon,
   ClipboardListIcon,
+  HeadsetIcon,
   HourglassIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
@@ -166,6 +167,19 @@ export const navigation: NavGroup[] = [
         access: { permission: "users.view" },
         shortcut: "u",
         description: "Customer accounts, balances, wallets, activity and account controls.",
+      },
+      {
+        id: "support",
+        label: "Support",
+        href: "/support",
+        icon: HeadsetIcon,
+        // Visible to anyone who can read customer records: triaging the queue
+        // and answering it are different jobs, and the reply box does its own
+        // `support.reply` check.
+        access: { anyPermission: ["support.reply", "users.view"] },
+        shortcut: "h",
+        description:
+          "Account appeals, contact-us messages and live in-app chat. Replies to the inbox go out as email.",
       },
     ],
   },

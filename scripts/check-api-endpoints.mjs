@@ -30,10 +30,14 @@ if (!existsSync(routesDir)) {
 const adminPaths = {
   core: "/flurrypay-website-admin",
   financial: "/flurrypay-website-admin-financial",
+  wallet: "/flurrypay-website-admin-wallet",
   notifications: "/flurrypay-website-admin-notifications",
   stranded: "/flurrypay-website-admin-stranded",
   compliance: "/flurrypay-website-admin-compliance",
   risk: "/flurrypay-website-admin-risk",
+  support: "/flurrypay-website-admin-support",
+  chat: "/flurrypay-website-admin-chat",
+  ledger: "/flurrypay-website-admin-ledger",
   companyDetails: "/company-details",
   users: "/user",
   kyc: "/kyc/admin",
@@ -44,12 +48,19 @@ const adminPaths = {
 const MOUNTS = [
   [adminPaths.core, "admin.ts"],
   [adminPaths.financial, "adminFinancial.ts"],
+  [adminPaths.wallet, "adminWallet.ts"],
   [adminPaths.notifications, "adminNotifications.ts"],
   [adminPaths.stranded, "strandedTransfers.ts"],
   [adminPaths.compliance, "compliance.ts"],
   [adminPaths.risk, "riskMonitoring.ts"],
   // riskMonitoring.ts ends with `riskRouter.use(fraudOperationsRouter)`.
   [adminPaths.risk, "fraudOperations.ts"],
+  [adminPaths.support, "adminSupport.ts"],
+  // The chat router is mounted twice by the API: once for customers at /chat and
+  // once behind the admin bot guard at this path. The console only ever calls the
+  // second, which serves the same route table.
+  [adminPaths.chat, "chat.ts"],
+  [adminPaths.ledger, "walletLedger.ts"],
   ["/company-details", "companyDetails.ts"],
   ["/user", "users.ts"],
   ["/kyc", "kyc.ts"],

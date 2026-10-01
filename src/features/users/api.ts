@@ -4,6 +4,7 @@ import { STEP_UP_HEADER } from "@/features/security/api";
 import { adminApi } from "@/lib/api/admin-client";
 import { adminPaths } from "@/lib/api/admin-paths";
 import { decimal, nullableString, timestamp } from "@/lib/api/schema-helpers";
+import { toDecimalString } from "@/lib/format";
 
 const core = adminPaths.core;
 const users = adminPaths.users;
@@ -272,4 +273,137 @@ export function freezeUser(id: string, reason: string, stepUp: AccountControlSte
 export function unfreezeUser(id: string, stepUp: AccountControlStepUp) {
   const { body, options } = stepUpRequest(stepUp);
   return adminApi.post(`${users}/unfreezeUser/${encodeURIComponent(id)}`, body, options);
+}
+
+/* ─── Manual wallet adjustments ──────────────────────────────────────────── */
+
+/**
+ * Credit or debit a customer's naira wallet by hand.
+ *
+ * THE STRICTEST GATE IN THE CONSOLE, AND WHY
+ *
+ * A credit creates spendable balance with no settlement behind it. A debit takes
+ * money out with no disbursement behind it and nothing the customer can point
+ * at. So the API demands super admin, the account password, the transaction PIN
+ * and a fresh authenticator code on every single call — four credentials, no
+ * grants, no bulk path. It is also deliberately not behind a grantable
+ * permission: invited staff can never hold it, in the same way they can never
+ * hold wallets.withdraw.
+ *
+ * WHAT `recordTransaction` DOES NOT CONTROL
+ *
+ * Three records come out of an adjustment, and only one is optional:
+ *
+ *   • the wallet ledger entry — the evidence, with the balance either side.
+ *     Always written.
+ *   • the audit log entry — who authorised it. Always written.
+ *   • the customer's statement line — whether this shows up in their own
+ *     transaction history. THIS is the option.
+ *
+ * So turning it off does not make an adjustment untraceable, and the dialog says
+ * so plainly: it exists for corrections the customer should not be invited to
+ * interpret (reversing a credit issued twice, settling an internal rounding
+ * difference), not for moving money quietly.
+ */
+export interface WalletAdjustment {
+  amount: string;
+  narration: string;
+  /** Write a line into the customer's own transaction history. */
+  recordTransaction: boolean;
+  /** Send the customer a credit/debit alert. */
+  notifyCustomer: boolean;
+  password: string;
+  pin: string;
+  twoFACode: string;
+}
+
+const adjustmentResultSchema = z
+  .object({
+    message: z.string().catch(""),
+    data: z
+      .object({
+        amount: z.unknown(),
+        reference: z.string().catch(""),
+        balanceBefore: z.unknown(),
+        balanceAfter: z.unknown(),
+        statementRowWritten: z.boolean().catch(true),
+        customerNotified: z.boolean().catch(true),
+      })
+      .optional(),
+  })
+  .transform((v) => ({
+    message: v.message,
+    reference: v.data?.reference ?? null,
+    balanceAfter: toDecimalString(v.data?.balanceAfter),
+    balanceBefore: toDecimalString(v.data?.balanceBefore),
+    statementRowWritten: v.data?.statementRowWritten ?? true,
+    customerNotified: v.data?.customerNotified ?? true,
+  }));
+export type WalletAdjustmentResult = z.output<typeof adjustmentResultSchema>;
+
+function adjustmentBody(userId: string, input: WalletAdjustment) {
+  return {
+    // The API resolves email, username or user ID. The console always sends the
+    // id: it is opened from a customer's own page, and matching by email would
+    // make an adjustment land on a different account if two records ever shared
+    // one.
+    identifier: userId,
+    amount: input.amount,
+    narration: input.narration.trim() || undefined,
+    recordTransaction: input.recordTransaction,
+    notifyCustomer: input.notifyCustomer,
+    password: input.password,
+    pin: input.pin,
+    twoFACode: input.twoFACode,
+  };
+}
+
+export function creditUserWallet(userId: string, input: WalletAdjustment) {
+  return adminApi.post(`${core}/credit-user`, adjustmentBody(userId, input), {
+    schema: adjustmentResultSchema,
+  });
+}
+
+export function debitUserWallet(userId: string, input: WalletAdjustment) {
+  return adminApi.post(`${core}/debit-user`, adjustmentBody(userId, input), {
+    schema: adjustmentResultSchema,
+  });
+}
+
+/**
+ * The customer's naira ledger: every movement, with the balance either side.
+ *
+ * `gaps` is the important part. Each entry records `balanceBefore` and
+ * `balanceAfter`, so any discontinuity between consecutive rows is a balance
+ * change that bypassed the ledger entirely — which is exactly the untraceable
+ * loss the ledger exists to surface, and the first thing to look at before
+ * adjusting a balance by hand.
+ */
+const ledgerEntrySchema = z.object({
+  id: z.string(),
+  direction: z.enum(["CREDIT", "DEBIT"]).catch("CREDIT"),
+  amountNaira: decimal,
+  balanceBefore: decimal,
+  balanceAfter: decimal,
+  source: z.string().catch(""),
+  reference: nullableString,
+  narration: nullableString,
+  createdAt: timestamp,
+});
+export type WalletLedgerEntry = z.output<typeof ledgerEntrySchema>;
+
+export function fetchUserWalletLedger(userId: string, limit = 50, signal?: AbortSignal) {
+  return adminApi.get(`${adminPaths.ledger}/statement/${encodeURIComponent(userId)}`, {
+    query: { limit },
+    schema: z
+      .object({
+        data: z.object({
+          entries: z.array(ledgerEntrySchema).catch([]),
+          gaps: z.array(z.unknown()).catch([]),
+          reconciles: z.boolean().catch(true),
+        }),
+      })
+      .transform((v) => v.data),
+    signal,
+  });
 }

@@ -32,6 +32,22 @@ const DAY = 24 * HOUR;
 const NOW = Date.now();
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
+/**
+ * Index into a generated fixture array.
+ *
+ * Throws rather than returning undefined: every call site below indexes a list
+ * this file built itself, so a miss means the fixture was edited wrongly and the
+ * preview should fail loudly at import time instead of rendering a page full of
+ * blanks that look like real empty data.
+ */
+function fixture<T>(items: readonly T[], index: number): T {
+  const value = items[index];
+  if (value === undefined) {
+    throw new Error(`Preview fixture index ${index} is out of range (length ${items.length}).`);
+  }
+  return value;
+}
+
 /* ─── People ─────────────────────────────────────────────────────────────── */
 
 const FIRST = [
@@ -210,6 +226,37 @@ export interface PreviewTransaction {
   failureOurFault: boolean | null;
   reversedAt: string | null;
   reversedAmount: string | null;
+  /**
+   * What this transaction did to the customer's naira balance.
+   *
+   * Null for a transaction that never touched it — which is most crypto
+   * movement — so the preview exercises both the populated and the empty case.
+   */
+  walletMovement: {
+    balanceBefore: string;
+    balanceAfter: string;
+    netChange: string;
+    hasGap: boolean;
+    entries: {
+      id: string;
+      direction: "CREDIT" | "DEBIT";
+      amountNaira: string;
+      balanceBefore: string;
+      balanceAfter: string;
+      source: string;
+      narration: string | null;
+      createdAt: string;
+    }[];
+  } | null;
+  /** Admin flag. Internal only — never shown to the customer. */
+  flaggedAt: string | null;
+  flagReason: string | null;
+  flagSeverity: string | null;
+  flagNote: string | null;
+  flaggedByAdminId: string | null;
+  flagClearedAt: string | null;
+  flagClearedByAdminId: string | null;
+  flagResolution: string | null;
   createdAt: string;
   updatedAt: string;
   user: { id: string; email: string; firstName: string; lastName: string };
@@ -272,6 +319,21 @@ export const transactions: PreviewTransaction[] = Array.from({ length: 420 }, (_
     failureOurFault: status === "FAILED" ? rand() > 0.6 : null,
     reversedAt: status === "REVERSED" ? new Date(created + 2 * HOUR).toISOString() : null,
     reversedAmount: status === "REVERSED" ? amount : null,
+    // Filled in below, once every row exists and a running balance per customer
+    // can be walked backwards from their current one.
+    walletMovement: null as PreviewTransaction["walletMovement"],
+    // Admin flags, on a deliberately small minority of rows — around one in
+    // forty, which is roughly what a real review queue looks like. A preview
+    // where half the ledger is flagged would make the column look like noise
+    // rather than the exception it is.
+    flaggedAt: null as string | null,
+    flagReason: null as string | null,
+    flagSeverity: null as string | null,
+    flagNote: null as string | null,
+    flaggedByAdminId: null as string | null,
+    flagClearedAt: null as string | null,
+    flagClearedByAdminId: null as string | null,
+    flagResolution: null as string | null,
     createdAt: new Date(created).toISOString(),
     updatedAt: new Date(created + between(1, 600) * 1000).toISOString(),
     user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
@@ -364,6 +426,143 @@ export function kycEntity(k: PreviewKyc) {
 /* ─── Administrators, roles, audit ───────────────────────────────────────── */
 
 export const PREVIEW_ADMIN_ID = "00000000-0000-4000-a000-000000000001";
+
+/**
+ * Walk each customer's naira balance backwards to build the wallet ledger.
+ *
+ * Backwards, for the same reason the per-customer statement is: the newest
+ * entry's `balanceAfter` has to equal the balance shown everywhere else, and
+ * the only way to guarantee that is to start from that number. Built forwards
+ * from an invented opening balance, every transaction in the preview would
+ * contradict the customer's own balance — which is precisely the discrepancy
+ * these columns exist to make visible, so faking one would be worse than
+ * showing nothing.
+ *
+ * Only naira transactions get a movement. A crypto-to-crypto send does not
+ * touch the wallet, and giving it a fabricated before/after would teach the
+ * reader that every transaction has one.
+ */
+const runningBalance = new Map<string, number>();
+for (const tx of transactions) {
+  const touchesNaira =
+    tx.currencyType === "FIAT" && (tx.status === "COMPLETED" || tx.status === "REVERSED");
+  if (!touchesNaira) continue;
+
+  const owner = users.find((u) => u.id === tx.userId);
+  if (!owner) continue;
+
+  const after = runningBalance.get(tx.userId) ?? Number(owner.walletBalance);
+  const amount = Number(tx.amount);
+  const credit = tx.transactionType === "FIAT_DEPOSIT" || tx.transactionType === "WALLET_FUNDING";
+  const fee = Number(tx.fee) || 0;
+  const before = Math.round((credit ? after - amount : after + amount + fee) * 100) / 100;
+  runningBalance.set(tx.userId, before);
+
+  const principalAfter = Math.round((credit ? before + amount : before - amount) * 100) / 100;
+  const entries: NonNullable<PreviewTransaction["walletMovement"]>["entries"] = [
+    {
+      id: `wl-${tx.id}-1`,
+      direction: credit ? "CREDIT" : "DEBIT",
+      amountNaira: amount.toFixed(2),
+      balanceBefore: before.toFixed(2),
+      balanceAfter: principalAfter.toFixed(2),
+      source: credit ? "DEPOSIT_WEBHOOK" : tx.transactionType,
+      narration: credit ? "Bank transfer" : null,
+      createdAt: tx.createdAt,
+    },
+  ];
+
+  // A withdrawal's fee is its own movement under the same reference — the case
+  // that makes a single before/after pair insufficient, and the reason the
+  // detail panel lists entries rather than summarising them.
+  if (!credit && fee > 0) {
+    entries.push({
+      id: `wl-${tx.id}-2`,
+      direction: "DEBIT",
+      amountNaira: fee.toFixed(2),
+      balanceBefore: principalAfter.toFixed(2),
+      balanceAfter: after.toFixed(2),
+      source: "TRANSFER_FEE",
+      narration: "Transfer fee",
+      createdAt: tx.createdAt,
+    });
+  }
+
+  tx.walletMovement = {
+    balanceBefore: before.toFixed(2),
+    balanceAfter: after.toFixed(2),
+    netChange: (Math.round((after - before) * 100) / 100).toFixed(2),
+    hasGap: false,
+    entries,
+  };
+}
+
+/**
+ * One deliberately broken chain.
+ *
+ * A transaction whose entries do not join up means a balance change happened
+ * in between that nothing accounts for — the untraceable-loss case the ledger
+ * exists to surface. The preview has to show what that looks like, or the
+ * warning path is code nobody has ever seen render.
+ */
+const brokenChain = transactions.find((t) => (t.walletMovement?.entries.length ?? 0) > 1);
+if (brokenChain?.walletMovement) {
+  const [, second] = brokenChain.walletMovement.entries;
+  if (second) {
+    second.balanceBefore = (Number(second.balanceBefore) - 7_500).toFixed(2);
+    brokenChain.walletMovement.hasGap = true;
+  }
+}
+
+/**
+ * Seed a handful of flags: open ones at a spread of severities, plus one already
+ * cleared so the "flagged then checked" history is visible too.
+ */
+for (const [index, seed] of (
+  [
+    [
+      "SUSPECTED_FRAUD",
+      "CRITICAL",
+      "Third transfer to the same new beneficiary in an hour, each just under ₦100,000.",
+    ],
+    [
+      "UNUSUAL_PATTERN",
+      "HIGH",
+      "First transfer this size on an account whose p95 is about ₦12,000.",
+    ],
+    [
+      "CUSTOMER_DISPUTE",
+      "MEDIUM",
+      "Customer says they did not authorise this and did not receive the airtime.",
+    ],
+    [
+      "POSSIBLE_DUPLICATE",
+      "LOW",
+      "Same amount, same beneficiary, 40 seconds apart. Probably a double tap.",
+    ],
+  ] as const
+).entries()) {
+  const tx = transactions[index * 7 + 3];
+  if (!tx) continue;
+  tx.flaggedAt = new Date(Date.parse(tx.createdAt) + 30 * 60_000).toISOString();
+  tx.flagReason = seed[0];
+  tx.flagSeverity = seed[1];
+  tx.flagNote = seed[2];
+  tx.flaggedByAdminId = PREVIEW_ADMIN_ID;
+}
+
+const clearedFlag = transactions[40];
+if (clearedFlag) {
+  clearedFlag.flaggedAt = ago(6 * DAY);
+  clearedFlag.flagReason = "AWAITING_PROOF_OF_FUNDS";
+  clearedFlag.flagSeverity = "MEDIUM";
+  clearedFlag.flagNote = "Large inbound with no obvious source. Asked the customer for an invoice.";
+  clearedFlag.flaggedByAdminId = PREVIEW_ADMIN_ID;
+  clearedFlag.flagClearedAt = ago(4 * DAY);
+  clearedFlag.flagClearedByAdminId = PREVIEW_ADMIN_ID;
+  clearedFlag.flagResolution =
+    "Customer produced the invoice and the sender is their registered supplier. No further action.";
+}
 
 export const roles = [
   {
@@ -766,6 +965,10 @@ export const payoutProviders = [
     name: "Nomba settlement",
     bankName: "Nomba MFB",
     accountName: "FlurryPay Ltd",
+    // Synthetic, but a real shape: this is the number an admin would transfer
+    // the float into, which is why the console shows it unmasked.
+    accountNumber: "5119947015",
+    bankCode: "000030",
     environment: "live",
     isActive: true,
     isDefault: true,
@@ -779,6 +982,8 @@ export const payoutProviders = [
     name: "FalconPay",
     bankName: "Providus Bank",
     accountName: "FlurryPay Ltd",
+    accountNumber: "9930014477",
+    bankCode: "000023",
     environment: "live",
     isActive: false,
     isDefault: false,
@@ -787,6 +992,100 @@ export const payoutProviders = [
     hasApiKey: true,
   },
 ];
+
+/**
+ * The company's own crypto wallets.
+ *
+ * One reserve is deliberately left unpriced and unavailable: a balance the
+ * exchange would not answer for is a real and frequent state, and a preview
+ * where every number resolves hides how the table reports it.
+ */
+export const cryptoReserves = [
+  {
+    coinName: "Tether",
+    coinTicker: "USDT",
+    coinBalance: {
+      cryptoBalance: "184320.44",
+      nairaBalance: "285696682.00",
+      lastUpdated: ago(0.05 * HOUR),
+    },
+    networks: [
+      {
+        id: "res-usdt-trc20",
+        address: "TXq7preview9a3c1f0d2b8e4a6c5d7f9e1b3a5",
+        network: "Tron (TRC20)",
+        networkId: "trc20",
+        withdrawsEnabled: true,
+      },
+      {
+        id: "res-usdt-bep20",
+        address: "0xpreview4k7x9m2n8p0q3r5s7t9v1w3x5y7z9a1b3",
+        network: "BNB Smart Chain (BEP20)",
+        networkId: "bep20",
+        withdrawsEnabled: true,
+      },
+    ],
+    balanceUnavailable: false,
+  },
+  {
+    coinName: "Bitcoin",
+    coinTicker: "BTC",
+    coinBalance: {
+      cryptoBalance: "2.41530000",
+      nairaBalance: "362295000.00",
+      lastUpdated: ago(0.05 * HOUR),
+    },
+    networks: [
+      {
+        id: "res-btc-native",
+        address: "bc1qpreview4k7x9m2n8p0q3r5s7t9v1w3x5y7z9a",
+        network: "Bitcoin",
+        networkId: "bitcoin",
+        withdrawsEnabled: true,
+      },
+    ],
+    balanceUnavailable: false,
+  },
+  {
+    coinName: "Ethereum",
+    coinTicker: "ETH",
+    coinBalance: { cryptoBalance: "0.0", nairaBalance: null, lastUpdated: null },
+    networks: [
+      {
+        id: "res-eth-erc20",
+        address: "0xpreview8d2f1a6c4b9e3h5j7k1m3n5p7q9r1s3t5u7",
+        network: "Ethereum (ERC20)",
+        networkId: "erc20",
+        withdrawsEnabled: false,
+      },
+    ],
+    balanceUnavailable: true,
+  },
+];
+
+/** Money in and out of the company's own accounts. */
+export const treasuryMovements = Array.from({ length: 34 }, (_, i) => {
+  const outward = i % 3 === 0;
+  const amount = Math.round(between(15_000, 2_400_000) / 50) * 50;
+  return {
+    id: uuid(),
+    transferDirection: outward ? "Outwards" : "Inwards",
+    transferType: outward
+      ? pick(["WITHDRAWAL", "USER_PAYMENT", "REFUND"])
+      : pick(["PROFIT_COLLECTION", "CRYPTO_SALE_COMMISSION", "SWAP_FEE"]),
+    status: i === 4 ? "Pending" : i === 9 ? "Failed" : "Completed",
+    amount: amount.toFixed(2),
+    fees: outward ? "50.00" : "0.00",
+    vat: outward ? "3.75" : "0.00",
+    narration: outward ? "Payout to company operating account" : "Platform earnings sweep",
+    paymentReference: `TRS-${(500_000 + i).toString(36).toUpperCase()}`,
+    counterpartyAccountName: outward ? "FlurryPay Operations" : null,
+    counterpartyAccountNumber: outward ? "0123456789" : null,
+    counterpartyBankName: outward ? "Guaranty Trust Bank" : null,
+    relatedUserId: outward && i % 6 === 0 ? fixture(users, i % users.length).id : null,
+    createdAt: ago(between(0.2, 40) * DAY),
+  };
+}).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
 export const earnings = transactions
   .filter(
@@ -829,6 +1128,14 @@ export const rates = {
   },
 };
 
+/**
+ * Notification fixtures, every one with somewhere to go.
+ *
+ * Deliberately: the whole point of the entityType/entityId pair is that the bell
+ * opens the thing it is telling you about, and a preview where nothing is
+ * clickable would show the feature as it used to be rather than as it is. One row
+ * carries neither, to exercise the unlinked case.
+ */
 export const notifications = [
   {
     id: uuid(),
@@ -838,7 +1145,25 @@ export const notifications = [
     priority: "high",
     targetRole: "all",
     read: false,
+    entityType: "stranded",
+    entityId: null,
+    link: null,
     createdAt: ago(2 * HOUR),
+  },
+  {
+    id: uuid(),
+    title: "Outbound transfers restricted automatically — CASE-2026-0007",
+    body:
+      "A CRITICAL risk case opened and outgoing transfers were paused automatically for the " +
+      "customer. Review it and either clear the case (which lifts the restriction) or take it further.",
+    type: "error",
+    priority: "high",
+    targetRole: "all",
+    read: false,
+    entityType: "case",
+    entityId: riskCases[0]?.id ?? null,
+    link: null,
+    createdAt: ago(3 * HOUR),
   },
   {
     id: uuid(),
@@ -848,7 +1173,36 @@ export const notifications = [
     priority: "high",
     targetRole: "all",
     read: false,
+    entityType: "alert",
+    entityId: complianceAlerts[0]?.id ?? null,
+    link: null,
     createdAt: ago(5 * HOUR),
+  },
+  {
+    id: uuid(),
+    title: `New support message from ${fullName(fixture(users, 4))}`,
+    body: "I was charged twice for the same airtime top-up this morning. Can you check?",
+    type: "info",
+    priority: "high",
+    targetRole: "all",
+    read: false,
+    entityType: "chatRoom",
+    entityId: `U_${fixture(users, 4).id}_A_${PREVIEW_ADMIN_ID}`,
+    link: null,
+    createdAt: ago(7 * HOUR),
+  },
+  {
+    id: uuid(),
+    title: `[Account Appeal] Locked out after changing phone — ${fullName(fixture(users, 11))}`,
+    body: `From: ${fullName(fixture(users, 11))} <${fixture(users, 11).email}>\n\nI changed my number and now I can't sign in.`,
+    type: "warning",
+    priority: "high",
+    targetRole: "all",
+    read: false,
+    entityType: "supportMessage",
+    entityId: "appeal:preview-appeal-1",
+    link: null,
+    createdAt: ago(9 * HOUR),
   },
   {
     id: uuid(),
@@ -858,8 +1212,206 @@ export const notifications = [
     priority: "medium",
     targetRole: "all",
     read: true,
+    entityType: "kyc",
+    entityId: kycProfiles[0]?.userId ?? null,
+    link: null,
     createdAt: ago(DAY),
   },
+  {
+    id: uuid(),
+    title: "Company liquidity at 86%",
+    body: "Float reserve ratio has fallen below the 90% threshold. Top up settlement reserves.",
+    type: "warning",
+    priority: "high",
+    targetRole: "superAdmin",
+    read: true,
+    entityType: null,
+    entityId: null,
+    link: "/treasury",
+    createdAt: ago(2 * DAY),
+  },
+  {
+    id: uuid(),
+    title: "Nightly reconciliation finished",
+    body: "No drift detected across 48 customer wallets.",
+    type: "success",
+    priority: "low",
+    targetRole: "all",
+    read: true,
+    entityType: null,
+    entityId: null,
+    link: null,
+    createdAt: ago(3 * DAY),
+  },
 ];
+
+/* ─── Support ────────────────────────────────────────────────────────────── */
+
+/**
+ * The merged support inbox: appeals and contact messages in one list, exactly as
+ * the API returns them, with the `type` discriminator that makes a row's identity
+ * the (type, id) pair rather than the id alone.
+ */
+export const supportMessages = [
+  {
+    id: "preview-appeal-1",
+    type: "appeal" as const,
+    name: fullName(fixture(users, 11)),
+    email: fixture(users, 11).email,
+    subject: "Locked out after changing phone",
+    message:
+      "I changed my number and now I can't sign in. I've attached a photo of my ID. " +
+      "Please help, my salary is in there.",
+    explanation:
+      "I changed my number and now I can't sign in. I've attached a photo of my ID. " +
+      "Please help, my salary is in there.",
+    reasonForAppeal: "Locked out after changing phone",
+    category: null,
+    fileUrl: "https://example.invalid/preview-attachment.jpg",
+    fileName: "id-card.jpg",
+    userId: fixture(users, 11).id,
+    number: fixture(users, 11).phoneNumber,
+    status: "pending",
+    readByAdmin: false,
+    replies: [] as { message: string; sentAt: string; adminEmail: string }[],
+    submittedAt: ago(9 * HOUR),
+  },
+  {
+    id: "preview-contact-1",
+    type: "contact" as const,
+    name: fullName(fixture(users, 2)),
+    email: fixture(users, 2).email,
+    subject: "Double charge on airtime",
+    message: "I was charged twice for the same airtime top-up this morning. Can you check?",
+    category: "Billing",
+    fileUrl: null,
+    fileName: null,
+    userId: fixture(users, 2).id,
+    number: null,
+    status: "under_review",
+    readByAdmin: true,
+    replies: [
+      {
+        message:
+          "Thanks for letting us know — I can see both attempts and I'm checking with the " +
+          "provider now. I'll come back to you today.",
+        sentAt: ago(4 * HOUR),
+        adminEmail: "preview.admin@example.com",
+      },
+    ],
+    submittedAt: ago(DAY),
+  },
+  {
+    id: "preview-appeal-2",
+    type: "appeal" as const,
+    name: fullName(fixture(users, 5)),
+    email: fixture(users, 5).email,
+    subject: "Transfers paused — I can explain the deposits",
+    message:
+      "My transfers are paused. The deposits are from my business customers, I can send invoices.",
+    explanation:
+      "My transfers are paused. The deposits are from my business customers, I can send invoices.",
+    reasonForAppeal: "Transfers paused — I can explain the deposits",
+    category: null,
+    fileUrl: null,
+    fileName: null,
+    userId: fixture(users, 5).id,
+    number: fixture(users, 5).phoneNumber,
+    status: "approved",
+    readByAdmin: true,
+    replies: [
+      {
+        message:
+          "Thank you for the invoices. Everything checks out and your transfers are working " +
+          "again. Sorry for the interruption.",
+        sentAt: ago(2 * DAY),
+        adminEmail: "preview.admin@example.com",
+      },
+    ],
+    submittedAt: ago(4 * DAY),
+  },
+  {
+    id: "preview-contact-2",
+    type: "contact" as const,
+    name: "Tunde Bakare",
+    email: "tunde.bakare@example.test",
+    subject: "Do you support business accounts?",
+    message: "I run a small logistics company and wanted to ask about business accounts.",
+    category: "General",
+    fileUrl: null,
+    fileName: null,
+    userId: null,
+    number: null,
+    status: "resolved",
+    readByAdmin: true,
+    replies: [] as { message: string; sentAt: string; adminEmail: string }[],
+    submittedAt: ago(6 * DAY),
+  },
+];
+
+/** Live chat rooms, keyed the way the API builds room ids: U_<userId>_A_<adminId>. */
+export const chatRooms = [4, 2, 17].map((index, position) => {
+  const user = fixture(users, index);
+  return {
+    id: uuid(),
+    roomId: `U_${user.id}_A_${PREVIEW_ADMIN_ID}`,
+    userId: user.id,
+    userName: fullName(user),
+    userEmail: user.email,
+    lastMessage: [
+      "I was charged twice for the same airtime top-up this morning. Can you check?",
+      "Thanks, that's sorted now.",
+      "Still waiting on the refund, any update?",
+    ][position],
+    lastMessageAt: ago((position * 6 + 1) * HOUR),
+    lastMessageFromAdmin: position === 1,
+    unreadCount: position === 1 ? 0 : 1,
+    createdAt: ago((position + 2) * DAY),
+    updatedAt: ago((position * 6 + 1) * HOUR),
+  };
+});
+
+/** Messages per room, oldest first — the order a conversation is read in. */
+export const chatMessages: Record<
+  string,
+  {
+    id: string;
+    roomId: string;
+    senderId: string;
+    message: string;
+    read: boolean;
+    createdAt: string;
+  }[]
+> = Object.fromEntries(
+  chatRooms.map((room, position) => [
+    room.roomId,
+    [
+      {
+        id: uuid(),
+        roomId: room.roomId,
+        senderId: room.userId,
+        message: "Hello, I need help with something on my account.",
+        read: true,
+        createdAt: ago((position * 6 + 4) * HOUR),
+      },
+      {
+        id: uuid(),
+        roomId: room.roomId,
+        senderId: PREVIEW_ADMIN_ID,
+        message: "Of course — what's happened?",
+        read: true,
+        createdAt: ago((position * 6 + 3) * HOUR),
+      },
+      {
+        id: uuid(),
+        roomId: room.roomId,
+        senderId: position === 1 ? PREVIEW_ADMIN_ID : room.userId,
+        message: room.lastMessage ?? "",
+        read: position === 1,
+        createdAt: ago((position * 6 + 1) * HOUR),
+      },
+    ],
+  ]),
+);
 
 export const PREVIEW_NOW = NOW;

@@ -42,6 +42,43 @@ export const TEST_TRANSACTIONS = [
     provider: "test-provider",
     failureReason: "Beneficiary bank unavailable",
     failureOurFault: false,
+    // An open flag, so the Flag column and the transaction drawer's banner have
+    // something to render.
+    flaggedAt: "2026-09-22T10:00:00.000Z",
+    flagReason: "SUSPECTED_FRAUD",
+    flagSeverity: "CRITICAL",
+    flagNote: "Third transfer to the same new beneficiary within the hour.",
+    flaggedByAdminId: "adm-super-0001",
+    // A withdrawal whose principal and fee are separate ledger movements — the
+    // case a single before/after pair cannot express.
+    walletMovement: {
+      balanceBefore: "200000.00",
+      balanceAfter: "49874.50",
+      netChange: "-150125.50",
+      hasGap: false,
+      entries: [
+        {
+          id: "wl-0001",
+          direction: "DEBIT",
+          amountNaira: "150075.50",
+          balanceBefore: "200000.00",
+          balanceAfter: "49924.50",
+          source: "FIAT_WITHDRAWAL",
+          narration: null,
+          createdAt: "2026-09-22T09:15:00.000Z",
+        },
+        {
+          id: "wl-0002",
+          direction: "DEBIT",
+          amountNaira: "50.00",
+          balanceBefore: "49924.50",
+          balanceAfter: "49874.50",
+          source: "TRANSFER_FEE",
+          narration: "Transfer fee",
+          createdAt: "2026-09-22T09:15:00.000Z",
+        },
+      ],
+    },
     createdAt: "2026-09-22T09:15:00.000Z",
     updatedAt: "2026-09-22T09:16:00.000Z",
     user: {
@@ -99,6 +136,115 @@ export const TEST_USERS = [
   },
 ];
 
+export const TEST_PAYOUT_PROVIDERS = [
+  {
+    id: "pp-0001",
+    provider: "nomba",
+    name: "Nomba settlement",
+    bankName: "Nomba MFB",
+    accountName: "FlurryPay Ltd",
+    // The top-up instruction, which is why the console shows it unmasked.
+    accountNumber: "5119947015",
+    bankCode: "000030",
+    environment: "live",
+    isActive: true,
+    isDefault: true,
+    cachedBalance: 48250300.55,
+    lastSyncedAt: "2026-09-23T11:00:00.000Z",
+    hasApiKey: true,
+    apiKeyMasked: "sk_live••••1234",
+  },
+  {
+    id: "pp-0002",
+    provider: "falconpay",
+    name: "FalconPay",
+    bankName: "Providus Bank",
+    accountName: "FlurryPay Ltd",
+    accountNumber: "9930014477",
+    bankCode: "000023",
+    environment: "live",
+    isActive: false,
+    isDefault: false,
+    cachedBalance: 3120000,
+    lastSyncedAt: "2026-09-23T06:00:00.000Z",
+    hasApiKey: true,
+  },
+];
+
+export const TEST_CRYPTO_RESERVES = [
+  {
+    coinName: "Tether",
+    coinTicker: "USDT",
+    coinBalance: {
+      cryptoBalance: "184320.44",
+      nairaBalance: "285696682.00",
+      lastUpdated: "2026-09-23T11:30:00.000Z",
+    },
+    networks: [
+      {
+        id: "res-usdt-trc20",
+        address: "TXq7test9a3c1f0d2b8e4a6c5d7f9e1b3a5",
+        network: "Tron (TRC20)",
+        networkId: "trc20",
+        withdrawsEnabled: true,
+      },
+    ],
+    balanceUnavailable: false,
+  },
+  {
+    // An unanswered balance. Shown as unavailable, never as zero — they look
+    // identical on screen and mean opposite things.
+    coinName: "Ethereum",
+    coinTicker: "ETH",
+    coinBalance: { cryptoBalance: "0.0", nairaBalance: null, lastUpdated: null },
+    networks: [
+      {
+        id: "res-eth-erc20",
+        address: "0xtest8d2f1a6c4b9e3",
+        network: "Ethereum (ERC20)",
+        networkId: "erc20",
+        withdrawsEnabled: false,
+      },
+    ],
+    balanceUnavailable: true,
+  },
+];
+
+export const TEST_TREASURY_MOVEMENTS = [
+  {
+    id: "mv-0001",
+    transferDirection: "Inwards",
+    transferType: "PROFIT_COLLECTION",
+    status: "Completed",
+    amount: "420000.00",
+    fees: "0.00",
+    vat: "0.00",
+    narration: "Platform earnings sweep",
+    paymentReference: "TRS-TEST-0001",
+    counterpartyAccountName: null,
+    counterpartyAccountNumber: null,
+    counterpartyBankName: null,
+    relatedUserId: null,
+    createdAt: "2026-09-23T08:00:00.000Z",
+  },
+  {
+    id: "mv-0002",
+    transferDirection: "Outwards",
+    transferType: "WITHDRAWAL",
+    status: "Completed",
+    amount: "1500000.00",
+    fees: "50.00",
+    vat: "3.75",
+    narration: "Payout to company operating account",
+    paymentReference: "TRS-TEST-0002",
+    counterpartyAccountName: "FlurryPay Operations",
+    counterpartyAccountNumber: "0123456789",
+    counterpartyBankName: "Guaranty Trust Bank",
+    relatedUserId: null,
+    createdAt: "2026-09-22T15:00:00.000Z",
+  },
+];
+
 export const TEST_STRANDED = [
   {
     reference: "TEST-STRANDED-0001",
@@ -117,7 +263,8 @@ export const TEST_STRANDED = [
   },
 ];
 
-type Handler = (route: Route, url: URL, body: unknown) => unknown;
+/** Exported so specs can build their own handler tables and still be type-checked. */
+export type Handler = (route: Route, url: URL, body: unknown) => unknown;
 
 function corsHeaders(): Record<string, string> {
   return {
@@ -167,8 +314,46 @@ export async function mockApi(
           trustedDeviceCount: 1,
         },
       }),
+    // Deliberately the OLD response shape: `{ message }` with no array at all,
+    // which is what an API build before paging answers an empty inbox with. Kept
+    // as a compatibility check — the bell must render against either.
     "GET /flurrypay-website-admin-notifications": (route) =>
       json(route, 200, { message: "No notifications found" }),
+    "GET /transactions/admin/flags/summary": (route) =>
+      json(route, 200, { success: true, data: { total: 1, CRITICAL: 1 } }),
+    "GET /flurrypay-website-admin-financial/payout-providers/balances": (route) =>
+      json(route, 200, {
+        success: true,
+        data: {
+          providers: TEST_PAYOUT_PROVIDERS,
+          activeProvider: TEST_PAYOUT_PROVIDERS[0],
+          nombaSettlement: {
+            balance: 48250300.55,
+            currency: "NGN",
+            lastSynced: "2026-09-23T11:00:00.000Z",
+          },
+          totalUserLiability: 1200000,
+          coverage: 47050300.55,
+          isUnderFunded: false,
+        },
+      }),
+    "GET /flurrypay-website-admin-wallet/get-wallets": (route) =>
+      json(route, 200, { message: "ok", wallets: TEST_CRYPTO_RESERVES }),
+    "GET /flurrypay-website-admin-wallet/withdrawal-limit": (route) =>
+      json(route, 200, {
+        success: true,
+        data: {
+          limit: 5000000,
+          used: 1250000,
+          remaining: 3750000,
+          currency: "NGN",
+          windowHours: 24,
+        },
+      }),
+    "GET /flurrypay-website-admin-financial/transfers": (route) =>
+      json(route, 200, {
+        data: { transfers: TEST_TREASURY_MOVEMENTS, total: TEST_TREASURY_MOVEMENTS.length },
+      }),
     "GET /transactions/admin/all": (route, url) => {
       const status = url.searchParams.get("status");
       const rows = TEST_TRANSACTIONS.filter((tx) => !status || tx.status === status);

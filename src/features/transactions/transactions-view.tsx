@@ -1,7 +1,13 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowLeftRightIcon, ExternalLinkIcon, FilterXIcon } from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  ExternalLinkIcon,
+  FilterXIcon,
+  FlagIcon,
+  FlagOffIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
 import { useMemo, useState } from "react";
@@ -31,7 +37,11 @@ import { useHasPermission } from "@/features/auth/admin-context";
 
 import {
   CURRENCY_TYPES,
+  fetchFlagSummary,
   fetchTransactions,
+  FLAG_SEVERITIES,
+  FLAG_VIEWS,
+  isFlagged,
   type Transaction,
   TRANSACTION_SORT_KEYS,
   TRANSACTION_STATUSES,
@@ -39,7 +49,8 @@ import {
   type TransactionQuery,
 } from "./api";
 import { transactionColumns } from "./columns";
-import { TRANSACTION_STATUS, TRANSACTION_TYPE } from "./labels";
+import { ClearFlagDialog, FlagTransactionDialog } from "./flag-dialogs";
+import { FLAG_SEVERITY_LABEL, TRANSACTION_STATUS, TRANSACTION_TYPE } from "./labels";
 import { TransactionDetails } from "./transaction-details";
 
 const DEFAULT_SORT = { key: "createdAt", direction: "desc" } as const;
@@ -56,6 +67,8 @@ const filterParsers = {
   range: parseAsStringLiteral([...DATE_PRESETS, "custom"] as const),
   from: parseAsString,
   to: parseAsString,
+  flagged: parseAsStringLiteral(FLAG_VIEWS),
+  flagSeverity: parseAsStringLiteral(FLAG_SEVERITIES),
 };
 
 interface TransactionsViewProps {
@@ -67,12 +80,15 @@ interface TransactionsViewProps {
 
 export function TransactionsView({ userId, tableId = "transactions" }: TransactionsViewProps) {
   const canViewUsers = useHasPermission("users.view");
+  // Raising and clearing a flag both need `compliance.review`, server-side.
+  const canFlag = useHasPermission("compliance.review");
   const table = useTableUrlState({ sortKeys: TRANSACTION_SORT_KEYS, defaultSort: DEFAULT_SORT });
   const [filters, setFilters] = useQueryStates(filterParsers, { clearOnDefault: true });
   const columns = useMemo(() => transactionColumns({ canViewUsers }), [canViewUsers]);
   const preferences = useTablePreferences(tableId, columns);
   const [selected, setSelected] = useState<Map<string, Transaction>>(new Map());
   const [openTx, setOpenTx] = useState<Transaction | null>(null);
+  const [flagDialog, setFlagDialog] = useState<"raise" | "clear" | null>(null);
 
   const range = resolveDateRange({ range: filters.range, from: filters.from, to: filters.to });
   const query: Omit<TransactionQuery, "page" | "pageSize"> = {
@@ -83,6 +99,8 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
     userId: userId ?? filters.user,
     from: range?.from.toISOString() ?? null,
     to: range?.to.toISOString() ?? null,
+    flagged: filters.flagged,
+    flagSeverity: filters.flagSeverity,
     sortBy: (table.sort?.key ?? "createdAt") as TransactionQuery["sortBy"],
     sortOrder: table.sort?.direction ?? "desc",
   };
@@ -108,14 +126,31 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
 
   const rows = result.data?.rows ?? [];
   const total = result.data?.total ?? 0;
+  // The open sheet reads from the refreshed list, not from the row that was
+  // clicked. Without this, flagging a transaction leaves the sheet showing the
+  // snapshot taken before the flag — so the banner never appears and the footer
+  // still offers to flag it again.
+  const openRow = openTx ? (rows.find((row) => row.id === openTx.id) ?? openTx) : null;
   const activeFilterCount = [
     filters.status,
     filters.type,
     filters.currency,
     filters.range,
+    filters.flagged,
+    filters.flagSeverity,
     !userId && filters.user,
     table.search,
   ].filter(Boolean).length;
+
+  // Real counts across the whole ledger, not the page. Only fetched for admins
+  // who can act on a flag — for everyone else it is a number they cannot use.
+  const flagSummary = useQuery({
+    queryKey: ["transaction-flags"],
+    queryFn: ({ signal }) => fetchFlagSummary(signal),
+    enabled: canFlag,
+    refetchInterval: 120_000,
+  });
+  const openFlags = flagSummary.data?.total ?? 0;
 
   const exportSource: ExportSource<Transaction> = {
     pageRows: rows,
@@ -146,6 +181,8 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
       range: null,
       from: null,
       to: null,
+      flagged: null,
+      flagSeverity: null,
     });
     table.setSearch("");
   }
@@ -190,6 +227,38 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
           value={{ range: filters.range, from: filters.from, to: filters.to }}
           onChange={(value) => void setFilters(value)}
         />
+        {canFlag && (
+          <>
+            <SelectFilter
+              label="Flag"
+              value={filters.flagged}
+              options={[
+                {
+                  value: "FLAGGED",
+                  label: openFlags > 0 ? `Open flags (${openFlags})` : "Open flags",
+                },
+                { value: "CLEARED", label: "Already cleared" },
+              ]}
+              onChange={(flagged) =>
+                // Dropping the flag view has to drop the severity with it, or a
+                // severity filter stays in the URL narrowing an unflagged list to
+                // nothing with no visible cause.
+                void setFilters(flagged ? { flagged } : { flagged: null, flagSeverity: null })
+              }
+            />
+            {filters.flagged === "FLAGGED" && (
+              <SelectFilter
+                label="Severity"
+                value={filters.flagSeverity}
+                options={FLAG_SEVERITIES.map((value) => ({
+                  value,
+                  label: `${FLAG_SEVERITY_LABEL[value]} (${flagSummary.data?.bySeverity[value] ?? 0})`,
+                }))}
+                onChange={(flagSeverity) => void setFilters({ flagSeverity })}
+              />
+            )}
+          </>
+        )}
         {activeFilterCount > 0 && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
             <FilterXIcon aria-hidden />
@@ -260,7 +329,7 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
           },
         }}
         onRowActivate={setOpenTx}
-        activeRowId={openTx?.id}
+        activeRowId={openRow?.id}
         empty={
           activeFilterCount > 0
             ? {
@@ -292,35 +361,90 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
       />
 
       <Sheet
-        open={openTx !== null}
+        open={openRow !== null}
         onOpenChange={(open) => {
-          if (!open) setOpenTx(null);
+          if (!open) {
+            setOpenTx(null);
+            setFlagDialog(null);
+          }
         }}
       >
-        {openTx && (
+        {openRow && (
           <SheetContent className="sm:max-w-xl">
             <SheetHeader>
               <SheetTitle>Transaction</SheetTitle>
               <SheetDescription className="font-mono text-xs">
-                {openTx.reference ?? openTx.id}
+                {openRow.reference ?? openRow.id}
               </SheetDescription>
             </SheetHeader>
             <SheetBody>
-              <TransactionDetails tx={openTx} canViewUsers={canViewUsers} />
+              <TransactionDetails tx={openRow} canViewUsers={canViewUsers} />
             </SheetBody>
-            {openTx.reference && (
-              <SheetFooter>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/transactions/${encodeURIComponent(openTx.reference)}`}>
-                    <ExternalLinkIcon aria-hidden />
-                    Open full page
-                  </Link>
-                </Button>
+            {(openRow.reference || canFlag) && (
+              <SheetFooter className="flex-wrap gap-2">
+                {canFlag &&
+                  (isFlagged(openRow) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFlagDialog("clear");
+                      }}
+                    >
+                      <FlagOffIcon aria-hidden />
+                      Clear flag
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFlagDialog("raise");
+                      }}
+                    >
+                      <FlagIcon aria-hidden />
+                      Flag for review
+                    </Button>
+                  ))}
+                {openRow.reference && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/transactions/${encodeURIComponent(openRow.reference)}`}>
+                      <ExternalLinkIcon aria-hidden />
+                      Open full page
+                    </Link>
+                  </Button>
+                )}
               </SheetFooter>
             )}
           </SheetContent>
         )}
       </Sheet>
+
+      {/*
+        Rendered outside the Sheet so the dialog is not unmounted by the sheet
+        closing beneath it, and keyed on the transaction so switching rows while
+        a dialog was open cannot carry the previous row's draft into it.
+      */}
+      {openRow && canFlag && (
+        <>
+          <FlagTransactionDialog
+            key={`flag-${openRow.id}`}
+            tx={openRow}
+            open={flagDialog === "raise"}
+            onOpenChange={(next) => {
+              if (!next) setFlagDialog(null);
+            }}
+          />
+          <ClearFlagDialog
+            key={`clear-${openRow.id}`}
+            tx={openRow}
+            open={flagDialog === "clear"}
+            onOpenChange={(next) => {
+              if (!next) setFlagDialog(null);
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

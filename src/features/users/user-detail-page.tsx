@@ -172,7 +172,7 @@ export function UserDetailPage({ userId }: { userId: string }) {
           </TabsContent>
         )}
         <TabsContent value="wallets">
-          <UserWallets userId={userId} />
+          <UserWallets user={data} />
         </TabsContent>
         {canTransactions && (
           <TabsContent value="transactions">

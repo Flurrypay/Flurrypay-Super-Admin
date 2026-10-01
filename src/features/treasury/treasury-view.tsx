@@ -1,14 +1,20 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { CoinsIcon, LandmarkIcon, ScaleIcon, TriangleAlertIcon, WalletIcon } from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  CoinsIcon,
+  LandmarkIcon,
+  ScaleIcon,
+  TriangleAlertIcon,
+  WalletIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
 
 import { DataTable } from "@/components/data-table/data-table";
 import { Pagination } from "@/components/data-table/pagination";
 import type { DataColumn } from "@/components/data-table/types";
-import { DetailSection } from "@/components/detail/detail-list";
 import { DATE_PRESETS, resolveDateRange } from "@/components/filters/date-range";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { SelectFilter } from "@/components/filters/select-filter";
@@ -17,22 +23,29 @@ import { DateTime } from "@/components/format/date-time";
 import { ErrorState } from "@/components/states/error-state";
 import { Freshness } from "@/components/states/freshness";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useHasPermission } from "@/features/auth/admin-context";
 import { Metric } from "@/features/overview/metric";
 import { humanizeEnum } from "@/lib/format";
 
+import { AccountsPanel } from "./accounts-panel";
 import {
+  type CryptoReserve,
   type Earning,
   EARNING_TYPES,
   type EarningsBreakdown,
+  fetchCryptoReserves,
   fetchEarnings,
   fetchEarningsBreakdown,
-  fetchLiquidity,
-  fetchPayoutProviders,
-  type PayoutProvider,
+  fetchTreasuryBalances,
+  TRANSFER_DIRECTIONS,
+  TRANSFER_STATUSES,
 } from "./api";
+import { MovementsPanel } from "./movements-panel";
+import { ReservesPanel } from "./reserves-panel";
+
+const TABS = ["accounts", "reserves", "movements", "earnings"] as const;
 
 const BREAKDOWN_ROWS: { key: keyof EarningsBreakdown; label: string }[] = [
   { key: "cryptoBuyCommissions", label: "Crypto buy commissions" },
@@ -42,15 +55,34 @@ const BREAKDOWN_ROWS: { key: keyof EarningsBreakdown; label: string }[] = [
   { key: "otherEarnings", label: "Other" },
 ];
 
-/** Liquidity against customer balances, payout accounts and company earnings. */
+/**
+ * Sum the naira estimates across crypto reserves.
+ *
+ * In floating point, and labelled as an estimate wherever it is shown. Each
+ * figure is already an estimate — a crypto amount priced at the company's
+ * current rate — so exact decimal arithmetic over them would add precision the
+ * inputs do not have. What matters is the order of magnitude: whether the
+ * reserves are worth roughly as much as the naira float or a fraction of it.
+ */
+function totalReserveNaira(reserves: CryptoReserve[] | undefined): number | null {
+  if (!reserves || reserves.length === 0) return null;
+  const priced = reserves.filter((r) => r.coinBalance.nairaBalance !== null);
+  if (priced.length === 0) return null;
+  return priced.reduce((sum, r) => sum + Number(r.coinBalance.nairaBalance ?? 0), 0);
+}
+
+/** Every balance the company holds, what it owes customers, and how money moved. */
 export function TreasuryView() {
   const canViewUsers = useHasPermission("users.view");
   const [state, setState] = useQueryStates(
     {
+      tab: parseAsStringLiteral(TABS).withDefault("accounts"),
       range: parseAsStringLiteral([...DATE_PRESETS, "custom"] as const).withDefault("30d"),
       from: parseAsString,
       to: parseAsString,
       type: parseAsStringLiteral(EARNING_TYPES),
+      direction: parseAsStringLiteral(TRANSFER_DIRECTIONS),
+      status: parseAsStringLiteral(TRANSFER_STATUSES),
       page: parseAsInteger.withDefault(1),
       size: parseAsInteger.withDefault(25),
     },
@@ -60,17 +92,20 @@ export function TreasuryView() {
   const rangeKey = state.range === "custom" ? `${state.from}..${state.to}` : state.range;
   const period = { startDate: range?.from.toISOString(), endDate: range?.to.toISOString() };
 
-  const liquidity = useQuery({
-    queryKey: ["treasury", "liquidity"],
-    queryFn: ({ signal }) => fetchLiquidity(signal),
+  const balances = useQuery({
+    queryKey: ["treasury", "balances"],
+    queryFn: ({ signal }) => fetchTreasuryBalances(signal),
   });
-  const providers = useQuery({
-    queryKey: ["treasury", "providers"],
-    queryFn: ({ signal }) => fetchPayoutProviders(signal),
+  // Shared with the reserves tab through the query cache, so the headline
+  // figure and the table can never disagree about what is held.
+  const reserves = useQuery({
+    queryKey: ["treasury", "reserves"],
+    queryFn: ({ signal }) => fetchCryptoReserves(signal),
   });
   const breakdown = useQuery({
     queryKey: ["treasury", "breakdown", rangeKey],
     queryFn: ({ signal }) => fetchEarningsBreakdown(period, signal),
+    enabled: state.tab === "earnings",
   });
   const earnings = useQuery({
     queryKey: [
@@ -84,49 +119,12 @@ export function TreasuryView() {
         signal,
       ),
     placeholderData: keepPreviousData,
+    enabled: state.tab === "earnings",
   });
 
-  const l = liquidity.data;
-
-  const providerColumns: DataColumn<PayoutProvider>[] = [
-    {
-      id: "name",
-      header: "Account",
-      required: true,
-      cell: (p) => (
-        <span className="grid leading-tight">
-          <span className="font-medium">{p.name || humanizeEnum(p.provider)}</span>
-          <span className="text-xs text-muted-foreground">
-            {[p.bankName, p.accountName].filter(Boolean).join(" · ") || humanizeEnum(p.provider)}
-          </span>
-        </span>
-      ),
-    },
-    {
-      id: "state",
-      header: "State",
-      cell: (p) => (
-        <span className="flex flex-wrap gap-1">
-          {p.isActive && <Badge tone="success">Active</Badge>}
-          {p.isDefault && <Badge tone="neutral">Default</Badge>}
-          {p.environment && <Badge tone="info">{humanizeEnum(p.environment)}</Badge>}
-          {!p.hasApiKey && <Badge tone="warning">Not configured</Badge>}
-        </span>
-      ),
-    },
-    {
-      id: "balance",
-      header: "Cached balance",
-      align: "right",
-      cell: (p) => <Amount value={p.cachedBalance} currency="NGN" />,
-    },
-    {
-      id: "synced",
-      header: "Synced",
-      priority: "secondary",
-      cell: (p) => <DateTime value={p.lastSyncedAt} />,
-    },
-  ];
+  const b = balances.data;
+  const settlement = b?.activeProvider?.cachedBalance ?? b?.nombaSettlement?.balance ?? null;
+  const reserveTotal = totalReserveNaira(reserves.data);
 
   const earningColumns: DataColumn<Earning>[] = [
     {
@@ -202,170 +200,220 @@ export function TreasuryView() {
 
   return (
     <div className="grid gap-5">
-      {l?.isUnderFunded && (
+      {b?.isUnderFunded && (
         <Alert tone="danger">
           <TriangleAlertIcon aria-hidden />
           <AlertTitle>Settlement balance is below customer balances</AlertTitle>
           <AlertDescription>
-            Customers hold more naira than the settlement account. The shortfall is shown under
-            Coverage.
+            Customers hold more naira than the active payout account. Fund it before the shortfall
+            reaches a withdrawal — the account details are under Accounts → Top up.
           </AlertDescription>
         </Alert>
       )}
 
-      <section aria-label="Liquidity" className="grid gap-3">
+      <section aria-label="Balances" className="grid gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-medium">Liquidity</h2>
+          <h2 className="text-sm font-medium">What the company holds</h2>
           <Freshness
-            updatedAt={liquidity.dataUpdatedAt}
-            isFetching={liquidity.isFetching}
-            onRefresh={() => void liquidity.refetch()}
+            updatedAt={balances.dataUpdatedAt}
+            isFetching={balances.isFetching || reserves.isFetching}
+            onRefresh={() => {
+              void balances.refetch();
+              void reserves.refetch();
+            }}
           />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric
-            label="Settlement balance"
-            value={l ? 0 : undefined}
-            display={
-              <Amount
-                value={l?.balance}
-                currency={l?.currency ?? "NGN"}
-                className="font-semibold"
-              />
-            }
+            label="Naira float"
+            value={settlement !== null ? 0 : undefined}
+            display={<Amount value={settlement} currency="NGN" className="font-semibold" />}
             icon={LandmarkIcon}
-            isPending={liquidity.isPending}
-            isError={liquidity.isError}
-            definition="Live balance of the settlement account, read from the provider."
+            isPending={balances.isPending}
+            isError={balances.isError}
+            definition={
+              b?.activeProvider
+                ? `Balance on ${b.activeProvider.name}, the account customer payouts leave from.`
+                : "Balance on the settlement account customer payouts leave from."
+            }
           />
           <Metric
-            label="Customer balances"
-            value={l ? 0 : undefined}
+            label="Crypto reserves"
+            value={reserveTotal !== null ? 0 : undefined}
+            display={<Amount value={reserveTotal} currency="NGN" className="font-semibold" />}
+            icon={CoinsIcon}
+            isPending={reserves.isPending}
+            isError={reserves.isError}
+            definition="Every company crypto wallet, priced at the current rate. An estimate — the naira figure moves with the market."
+          />
+          <Metric
+            label="Owed to customers"
+            value={b ? 0 : undefined}
             display={
-              <Amount value={l?.totalUserLiability} currency="NGN" className="font-semibold" />
+              <Amount value={b?.totalUserLiability} currency="NGN" className="font-semibold" />
             }
             icon={WalletIcon}
-            isPending={liquidity.isPending}
-            isError={liquidity.isError}
-            definition="Sum of every customer's naira wallet balance: what the company owes customers."
+            isPending={balances.isPending}
+            isError={balances.isError}
+            definition="Sum of every customer's naira wallet balance: what the company owes if everyone withdrew today."
           />
           <Metric
             label="Coverage"
-            value={l?.isUnderFunded ? 1 : 0}
+            value={b?.isUnderFunded ? 1 : 0}
             attention
-            display={<Amount value={l?.coverage} currency="NGN" signed className="font-semibold" />}
+            display={<Amount value={b?.coverage} currency="NGN" signed className="font-semibold" />}
             icon={ScaleIcon}
-            isPending={liquidity.isPending}
-            isError={liquidity.isError}
-            definition="Settlement balance minus customer balances. Negative means under-funded."
+            isPending={balances.isPending}
+            isError={balances.isError}
+            definition="Naira float minus what customers hold. Negative means a run on withdrawals could not be met from the float alone. Crypto reserves are not counted — they are not naira until sold."
           />
         </div>
       </section>
 
-      <DetailSection title="Payout accounts">
-        <DataTable
-          label="Payout accounts"
-          subject="payout accounts"
-          columns={providerColumns}
-          rows={providers.data ?? []}
-          getRowId={(p) => p.id}
-          isLoading={providers.isFetching}
-          error={providers.error}
-          onRetry={() => void providers.refetch()}
-          empty={{
-            icon: LandmarkIcon,
-            title: "No payout accounts",
-            description: "Payout providers configured in the API appear here.",
-          }}
-        />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Switching or configuring providers stays with super admins in the existing tools; this
-          view is read-only.
-        </p>
-      </DetailSection>
+      <Tabs
+        value={state.tab}
+        onValueChange={(tab) =>
+          void setState({
+            tab: tab as (typeof TABS)[number],
+            page: 1,
+            // Each tab owns its own filters; carrying one tab's into another
+            // silently narrows a list the admin has not filtered.
+            direction: null,
+            status: null,
+            type: null,
+          })
+        }
+      >
+        <TabsList>
+          <TabsTrigger value="accounts">
+            <LandmarkIcon aria-hidden />
+            Accounts
+          </TabsTrigger>
+          <TabsTrigger value="reserves">
+            <CoinsIcon aria-hidden />
+            Crypto reserves
+          </TabsTrigger>
+          <TabsTrigger value="movements">
+            <ArrowLeftRightIcon aria-hidden />
+            Movements
+          </TabsTrigger>
+          <TabsTrigger value="earnings">
+            <ScaleIcon aria-hidden />
+            Earnings
+          </TabsTrigger>
+        </TabsList>
 
-      <section aria-label="Earnings" className="grid gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="mr-2 text-sm font-medium">Earnings</h2>
-          <DateRangeFilter
-            value={{ range: state.range, from: state.from, to: state.to }}
-            onChange={(value) => void setState({ ...value, range: value.range ?? "30d", page: 1 })}
+        <TabsContent value="accounts">
+          <AccountsPanel
+            providers={balances.data?.providers ?? []}
+            isLoading={balances.isFetching}
+            error={balances.error}
+            onRetry={() => void balances.refetch()}
           />
-          <SelectFilter
-            label="Type"
-            value={state.type}
-            options={EARNING_TYPES.map((value) => ({ value, label: humanizeEnum(value) }))}
-            onChange={(type) => void setState({ type, page: 1 })}
-          />
-        </div>
+        </TabsContent>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
-          <div className="rounded-md border bg-card p-4">
-            {breakdown.isPending ? (
-              <Skeleton className="h-40" />
-            ) : breakdown.isError ? (
-              <ErrorState
-                error={breakdown.error}
-                subject="the earnings breakdown"
-                onRetry={() => void breakdown.refetch()}
+        <TabsContent value="reserves">
+          <ReservesPanel />
+        </TabsContent>
+
+        <TabsContent value="movements">
+          <div className="grid gap-3 pt-2">
+            <DateRangeFilter
+              value={{ range: state.range, from: state.from, to: state.to }}
+              onChange={(value) =>
+                void setState({ ...value, range: value.range ?? "30d", page: 1 })
+              }
+            />
+            <MovementsPanel state={state} setState={setState} period={period} rangeKey={rangeKey} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="earnings">
+          <div className="grid gap-3 pt-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <DateRangeFilter
+                value={{ range: state.range, from: state.from, to: state.to }}
+                onChange={(value) =>
+                  void setState({ ...value, range: value.range ?? "30d", page: 1 })
+                }
               />
-            ) : (
-              <dl className="grid gap-2 text-sm">
-                {BREAKDOWN_ROWS.map((row) => (
-                  <div key={row.key} className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">{row.label}</dt>
-                    <dd>
-                      <Amount
-                        value={breakdown.data[row.key]}
-                        currency="NGN"
-                        className="font-normal"
-                      />
-                    </dd>
-                  </div>
-                ))}
-                <div className="flex justify-between gap-3 border-t pt-2 font-medium">
-                  <dt className="flex items-center gap-1.5">
-                    <CoinsIcon className="size-4 text-muted-foreground" aria-hidden />
-                    Total
-                  </dt>
-                  <dd>
-                    <Amount value={breakdown.data.total} currency="NGN" />
-                  </dd>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Totals are summed by the API in floating point and may differ from an exact sum by
-                  a fraction of a kobo.
-                </p>
-              </dl>
-            )}
-          </div>
+              <SelectFilter
+                label="Type"
+                value={state.type}
+                options={EARNING_TYPES.map((value) => ({ value, label: humanizeEnum(value) }))}
+                onChange={(type) => void setState({ type, page: 1 })}
+              />
+            </div>
 
-          <div className="grid gap-3">
-            <DataTable
-              label="Earnings"
-              subject="earnings"
-              columns={earningColumns}
-              rows={earnings.data?.rows ?? []}
-              getRowId={(e) => e.id}
-              isLoading={earnings.isFetching}
-              error={earnings.error}
-              onRetry={() => void earnings.refetch()}
-              empty={{
-                icon: CoinsIcon,
-                title: "No earnings in this period",
-                description: "Profit recorded on completed buys, sells and swaps appears here.",
-              }}
-            />
-            <Pagination
-              page={state.page}
-              pageSize={state.size}
-              total={earnings.data?.total ?? 0}
-              onPageChange={(page) => void setState({ page })}
-              onPageSizeChange={(size) => void setState({ size, page: 1 })}
-            />
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
+              <div className="rounded-md border bg-card p-4">
+                {breakdown.isPending ? (
+                  <Skeleton className="h-40" />
+                ) : breakdown.isError ? (
+                  <ErrorState
+                    error={breakdown.error}
+                    subject="the earnings breakdown"
+                    onRetry={() => void breakdown.refetch()}
+                  />
+                ) : (
+                  <dl className="grid gap-2 text-sm">
+                    {BREAKDOWN_ROWS.map((row) => (
+                      <div key={row.key} className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">{row.label}</dt>
+                        <dd>
+                          <Amount
+                            value={breakdown.data[row.key]}
+                            currency="NGN"
+                            className="font-normal"
+                          />
+                        </dd>
+                      </div>
+                    ))}
+                    <div className="flex justify-between gap-3 border-t pt-2 font-medium">
+                      <dt className="flex items-center gap-1.5">
+                        <CoinsIcon className="size-4 text-muted-foreground" aria-hidden />
+                        Total
+                      </dt>
+                      <dd>
+                        <Amount value={breakdown.data.total} currency="NGN" />
+                      </dd>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Totals are summed by the API in floating point and may differ from an exact
+                      sum by a fraction of a kobo.
+                    </p>
+                  </dl>
+                )}
+              </div>
+
+              <div className="grid gap-3">
+                <DataTable
+                  label="Earnings"
+                  subject="earnings"
+                  columns={earningColumns}
+                  rows={earnings.data?.rows ?? []}
+                  getRowId={(e) => e.id}
+                  isLoading={earnings.isFetching}
+                  error={earnings.error}
+                  onRetry={() => void earnings.refetch()}
+                  empty={{
+                    icon: CoinsIcon,
+                    title: "No earnings in this period",
+                    description: "Profit recorded on completed buys, sells and swaps appears here.",
+                  }}
+                />
+                <Pagination
+                  page={state.page}
+                  pageSize={state.size}
+                  total={earnings.data?.total ?? 0}
+                  onPageChange={(page) => void setState({ page })}
+                  onPageSizeChange={(size) => void setState({ size, page: 1 })}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

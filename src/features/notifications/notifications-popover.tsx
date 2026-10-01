@@ -1,85 +1,108 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BellIcon,
-  CircleAlertIcon,
-  CircleCheckIcon,
-  InfoIcon,
-  TriangleAlertIcon,
-} from "lucide-react";
-import { useMemo } from "react";
+import { ArrowRightIcon, BellIcon } from "lucide-react";
+import type { Route } from "next";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { DateTime } from "@/components/format/date-time";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdmin } from "@/features/auth/admin-context";
 import { getUserMessage } from "@/lib/api/errors";
-import { cn } from "@/lib/utils";
 
 import {
   type AdminNotification,
+  BELL_LIMIT,
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from "./api";
+import { NotificationRow } from "./notification-row";
 
-const MAX_SHOWN = 30;
 const queryKey = ["admin-notifications"] as const;
-
-const TYPE_ICON = {
-  success: { icon: CircleCheckIcon, className: "text-success" },
-  info: { icon: InfoIcon, className: "text-info" },
-  warning: { icon: TriangleAlertIcon, className: "text-warning" },
-  error: { icon: CircleAlertIcon, className: "text-destructive" },
-} as const;
 
 export function NotificationsPopover() {
   const admin = useAdmin();
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => fetchNotifications(signal),
     refetchInterval: 60_000,
   });
 
-  // Newest first, limited to notifications addressed to this admin's role.
+  // The API returns newest first and caps the page, so the bell only filters to
+  // this admin's role. `targetRole` is advisory — the API hides nothing by it —
+  // so this is presentation, not access control.
   const items = useMemo(
     () =>
-      (query.data ?? [])
-        .filter((n) => n.targetRole === "all" || n.targetRole === admin.role)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        .slice(0, MAX_SHOWN),
+      (query.data?.rows ?? []).filter((n) => n.targetRole === "all" || n.targetRole === admin.role),
     [query.data, admin.role],
   );
-  const unread = items.filter((n) => !n.read).length;
+  // From the API, so the badge counts every unread notification rather than the
+  // unread ones that happened to fit on the bell's page.
+  const unread = query.data?.unread ?? 0;
+  const total = query.data?.total ?? 0;
 
   const markOne = useMutation({
     mutationFn: markNotificationRead,
     onMutate: (id) => {
-      queryClient.setQueryData<AdminNotification[]>(queryKey, (current) =>
-        current?.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      queryClient.setQueryData<{
+        rows: AdminNotification[];
+        total: number;
+        unread: number;
+      }>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              rows: current.rows.map((n) => (n.id === id ? { ...n, read: true } : n)),
+              unread: Math.max(0, current.unread - 1),
+            }
+          : current,
       );
     },
     onError: (error) => {
       toast.error(getUserMessage(error));
       void queryClient.invalidateQueries({ queryKey });
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-notifications-page"] });
+    },
   });
 
   const markAll = useMutation({
     mutationFn: markAllNotificationsRead,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["admin-notifications-page"] });
+    },
     onError: (error) => toast.error(getUserMessage(error)),
   });
 
+  /**
+   * Opening a notification marks it read and goes where it points.
+   *
+   * Marking happens either way: the admin has now seen it, and leaving it unread
+   * because it had nowhere to go means the badge never clears for exactly the
+   * notifications nobody can act on.
+   */
+  function activate(notification: AdminNotification, href: Route | null) {
+    if (!notification.read) markOne.mutate(notification.id);
+    if (href) {
+      setOpen(false);
+      router.push(href);
+    }
+  }
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" data-tour="notifications">
           <BellIcon aria-hidden />
@@ -95,8 +118,13 @@ export function NotificationsPopover() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 max-w-[calc(100vw-1rem)] p-0">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <p className="text-sm font-medium">Notifications</p>
+        <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+          <p className="text-sm font-medium">
+            Notifications
+            {unread > 0 && (
+              <span className="ml-1.5 font-normal text-muted-foreground">{unread} unread</span>
+            )}
+          </p>
           <Button
             variant="ghost"
             size="sm"
@@ -134,44 +162,44 @@ export function NotificationsPopover() {
         )}
         {items.length > 0 && (
           <ul className="max-h-96 divide-y overflow-y-auto">
-            {items.map((notification) => {
-              const { icon: Icon, className } = TYPE_ICON[notification.type];
-              return (
-                <li key={notification.id}>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/60",
-                      !notification.read && "bg-accent/30",
-                    )}
-                    onClick={() => {
-                      if (!notification.read) markOne.mutate(notification.id);
-                    }}
-                  >
-                    <Icon
-                      className={cn("mt-0.5 size-4 shrink-0", className)}
-                      aria-label={notification.type}
-                    />
-                    <span className="grid min-w-0 flex-1 gap-0.5">
-                      <span className="flex items-center gap-2 text-sm font-medium">
-                        <span className="truncate">{notification.title}</span>
-                        {notification.priority === "high" && <Badge tone="danger">High</Badge>}
-                        {!notification.read && <span className="sr-only">(unread)</span>}
-                      </span>
-                      <span className="line-clamp-2 text-xs text-muted-foreground">
-                        {notification.body}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        <DateTime value={notification.createdAt} format="relative" />
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
+            {items.map((notification) => (
+              <li key={notification.id}>
+                <NotificationRow notification={notification} onActivate={activate} />
+              </li>
+            ))}
           </ul>
         )}
+        {/*
+          Always present, even on an empty inbox: the full list is also where
+          read history lives, and "nothing unread" is not the same as "nothing
+          ever happened". The count tells the admin whether the bell is showing
+          them everything or only the newest page.
+        */}
+        <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+          <span className="text-xs text-muted-foreground">
+            {total > items.length
+              ? `Showing the newest ${items.length} of ${total}`
+              : "All notifications are shown"}
+          </span>
+          <Button
+            asChild
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            onClick={() => {
+              setOpen(false);
+            }}
+          >
+            <Link href="/notifications">
+              View all
+              <ArrowRightIcon aria-hidden />
+            </Link>
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
 }
+
+/** Kept in sync with the bell's page size, for the "showing N of M" line above. */
+export { BELL_LIMIT };

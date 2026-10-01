@@ -100,6 +100,10 @@ export function ComplianceView() {
       severity: parseAsStringLiteral(ALERT_SEVERITIES),
       rule: parseAsStringLiteral(MONITORING_RULES),
       type: parseAsStringLiteral(REPORT_TYPES),
+      // Set by an in-app link — a notification, a search result — so arriving
+      // from elsewhere opens the alert instead of a queue the admin then has to
+      // find it in.
+      alert: parseAsString,
     },
     { clearOnDefault: true },
   );
@@ -163,6 +167,7 @@ export function ComplianceView() {
             severity: null,
             rule: null,
             type: null,
+            alert: null,
           })
         }
       >
@@ -195,6 +200,7 @@ interface PanelProps {
     severity: (typeof ALERT_SEVERITIES)[number] | null;
     rule: (typeof MONITORING_RULES)[number] | null;
     type: (typeof REPORT_TYPES)[number] | null;
+    alert: string | null;
   };
   setState: (patch: Record<string, unknown>) => unknown;
 }
@@ -202,6 +208,10 @@ interface PanelProps {
 function AlertsPanel({ state, setState }: PanelProps) {
   const canViewUsers = useHasPermission("users.view");
   const [open, setOpen] = useState<ComplianceAlert | null>(null);
+  // The URL wins while it names an alert, so a link opens the drawer on first
+  // render — before the list has loaded and without needing the row to be on
+  // the current page.
+  const openId = state.alert ?? open?.id ?? null;
   const status = (ALERT_STATUSES as readonly string[]).includes(state.status ?? "")
     ? state.status
     : null;
@@ -309,7 +319,7 @@ function AlertsPanel({ state, setState }: PanelProps) {
         error={result.error}
         onRetry={() => void result.refetch()}
         onRowActivate={setOpen}
-        activeRowId={open?.id}
+        activeRowId={openId}
         empty={{
           icon: ShieldAlertIcon,
           title: active ? "No alerts match" : "No alerts",
@@ -326,9 +336,10 @@ function AlertsPanel({ state, setState }: PanelProps) {
         onPageSizeChange={(size) => void setState({ size: Math.min(size, 100), page: 1 })}
       />
       <AlertDrawer
-        alertId={open?.id ?? null}
+        alertId={openId}
         onClose={() => {
           setOpen(null);
+          if (state.alert) void setState({ alert: null });
         }}
         canViewUsers={canViewUsers}
       />

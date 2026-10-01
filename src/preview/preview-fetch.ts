@@ -8,8 +8,11 @@ import { adminPaths } from "@/lib/api/admin-paths";
 import {
   admins,
   auditLogs,
+  chatMessages,
+  chatRooms,
   complianceAlerts,
   complianceReports,
+  cryptoReserves,
   earnings,
   fullName,
   fundHolds,
@@ -24,7 +27,9 @@ import {
   riskCases,
   roles,
   strandedTransfers,
+  supportMessages,
   transactions,
+  treasuryMovements,
   users,
 } from "./data";
 
@@ -173,9 +178,21 @@ function filterTransactions(q: URLSearchParams | Json) {
       (!get("currencyType") || t.currencyType === get("currencyType")) &&
       (!get("userId") || t.userId === get("userId")) &&
       (!from && !to ? true : inRange(t.createdAt, from, to)) &&
+      // "Flagged" is an OPEN flag — raised and not yet cleared. A cleared flag
+      // stays on the row as history, so without the second condition the review
+      // queue keeps returning finished work.
+      (get("flagged") === "FLAGGED"
+        ? Boolean(t.flaggedAt) && !t.flagClearedAt
+        : get("flagged") === "CLEARED"
+          ? Boolean(t.flagClearedAt)
+          : true) &&
+      (!get("flagSeverity") || t.flagSeverity === get("flagSeverity")) &&
       (!term || contains(term, t.reference, t.externalId, t.user.email, t.id, t.transactionHash)),
   );
 }
+
+/** Open flags only, for the summary endpoint and the filter's counts. */
+const openFlags = () => transactions.filter((t) => t.flaggedAt && !t.flagClearedAt);
 
 /* ─── Reports ────────────────────────────────────────────────────────────── */
 
@@ -367,15 +384,171 @@ route("POST", `${core}/security/setup-2fa`, () =>
 );
 
 // Notifications
-route("GET", adminPaths.notifications, () => json({ notifications }));
+route("GET", adminPaths.notifications, (req) => {
+  const unreadOnly = req.query.get("unread") === "true";
+  const visible = unreadOnly ? notifications.filter((n) => !n.read) : notifications;
+  // Newest first and paged, matching the API — the bell relies on the server for
+  // both now rather than sorting and slicing in the browser.
+  const sorted = [...visible].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const { rows, total, page: pageNo, limit } = page(sorted, req.query);
+  return json({
+    notifications: rows,
+    unread: notifications.filter((n) => !n.read).length,
+    pagination: { page: pageNo, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+  });
+});
 route("PATCH", `${adminPaths.notifications}/read/:id`, (_r, [id]) => {
   const n = notifications.find((x) => x.id === id);
-  if (n) n.read = true;
+  if (!n) return notFound("Notification not found");
+  n.read = true;
   return ok();
 });
-route("PATCH", `${adminPaths.notifications}/read-all`, () => {
-  for (const n of notifications) n.read = true;
+route("PATCH", `${adminPaths.notifications}/read-all`, (req) => {
+  const ids = Array.isArray(req.body.notificationIds)
+    ? (req.body.notificationIds as string[])
+    : null;
+  let affected = 0;
+  for (const n of notifications) {
+    if (n.read) continue;
+    if (ids && !ids.includes(n.id)) continue;
+    n.read = true;
+    affected++;
+  }
+  return json({ success: true, message: `${affected} marked as read.`, affected });
+});
+
+/* ─── Support: the merged inbox ──────────────────────────────────────────── */
+
+const support = adminPaths.support;
+
+/**
+ * Both tables are merged by the API, so a row is found by the (type, id) pair.
+ *
+ * Takes `string | undefined` because a route's captured segments are typed that
+ * way; an absent segment simply matches nothing, which is the correct answer.
+ */
+const findSupport = (type: string | undefined, id: string | undefined) =>
+  type && id ? supportMessages.find((m) => m.type === type && m.id === id) : undefined;
+
+route("GET", support, (req) => {
+  const status = req.query.get("status") ?? "all";
+  const kind = req.query.get("type") ?? "all";
+
+  let rows = [...supportMessages].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  if (kind !== "all") rows = rows.filter((m) => m.type === kind);
+  if (status === "unread") rows = rows.filter((m) => !m.readByAdmin);
+  else if (status !== "all") rows = rows.filter((m) => m.status === status);
+
+  const paged = page(rows, req.query, 25);
+  return json({
+    data: paged.rows,
+    pagination: {
+      page: paged.page,
+      limit: paged.limit,
+      total: paged.total,
+      totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)),
+    },
+    summary: {
+      totalAppeals: supportMessages.filter((m) => m.type === "appeal").length,
+      totalContact: supportMessages.filter((m) => m.type === "contact").length,
+      unread: supportMessages.filter((m) => !m.readByAdmin).length,
+    },
+  });
+});
+
+route("GET", `${support}/:type/:id`, (_r, [type, id]) => {
+  const found = findSupport(type, id);
+  return found ? json({ data: found }) : notFound("Message not found");
+});
+
+route("POST", `${support}/:type/:id/reply`, (req, [type, id]) => {
+  const found = findSupport(type, id);
+  if (!found) return notFound("Message not found");
+  const message = text(req.body.message).trim();
+  if (!message) return json({ message: "Reply message is required." }, 400);
+  found.replies.push({
+    message,
+    sentAt: new Date().toISOString(),
+    adminEmail: "preview.admin@example.com",
+  });
+  found.readByAdmin = true;
+  audit("SUPPORT_MESSAGE_REPLIED", { type, id }, { type: "supportMessage", id: found.id });
+  return json({ message: "Reply sent (preview only: no email leaves this browser).", data: found });
+});
+
+route("PATCH", `${support}/:type/:id/status`, (req, [type, id]) => {
+  const found = findSupport(type, id);
+  if (!found) return notFound("Message not found");
+  const status = text(req.body.status);
+  if (!status) return json({ message: "Status is required." }, 400);
+  found.status = status;
+  audit(
+    "SUPPORT_MESSAGE_STATUS_CHANGED",
+    { type, id, status },
+    { type: "supportMessage", id: found.id },
+  );
+  return json({ data: found });
+});
+
+route("PATCH", `${support}/:type/:id/read`, (_r, [type, id]) => {
+  const found = findSupport(type, id);
+  if (!found) return notFound("Message not found");
+  found.readByAdmin = true;
   return ok();
+});
+
+/* ─── Support: live chat ─────────────────────────────────────────────────── */
+
+const chat = adminPaths.chat;
+
+route("GET", `${chat}/admin/rooms`, (req) => {
+  const sorted = [...chatRooms].sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+  const paged = page(sorted, req.query, 20);
+  return json({
+    rooms: paged.rows,
+    page: paged.page,
+    limit: paged.limit,
+    total: paged.total,
+    totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)),
+  });
+});
+
+route("GET", `${chat}/admin/room/:roomId`, (_r, [roomId]) => {
+  const room = chatRooms.find((r) => r.roomId === roomId);
+  if (!room) return notFound("Chat room not found");
+  // The API marks the customer's messages read as a side effect of this read, so
+  // the preview does too — otherwise the unread badges never clear here and the
+  // console's refresh-after-read looks like a bug.
+  room.unreadCount = 0;
+  const user = users.find((u) => u.id === room.userId);
+  return json({
+    messages: (roomId && chatMessages[roomId]) || [],
+    user: user
+      ? { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email }
+      : null,
+  });
+});
+
+route("POST", `${chat}/admin/reply`, (req) => {
+  const roomId = text(req.body.roomId);
+  const message = text(req.body.message).trim();
+  const room = chatRooms.find((r) => r.roomId === roomId);
+  if (!room) return notFound("Chat room not found");
+  if (!message) return json({ message: "roomId and message are required" }, 400);
+  const sent = {
+    id: crypto.randomUUID(),
+    roomId,
+    senderId: PREVIEW_ADMIN_ID,
+    message,
+    read: true,
+    createdAt: new Date().toISOString(),
+  };
+  (chatMessages[roomId] ??= []).push(sent);
+  room.lastMessage = message;
+  room.lastMessageAt = sent.createdAt;
+  room.lastMessageFromAdmin = true;
+  room.unreadCount = 0;
+  return json({ message: "Reply sent", chat: sent }, 201);
 });
 
 // Search
@@ -492,6 +665,165 @@ route("GET", `${core}/user-activity/:id`, (req) => {
   const offset = Number(req.query.get("offset") ?? 0);
   return json({ logs: logs.slice(offset, offset + limit), total: logs.length });
 });
+/* ─── Naira wallet: ledger and manual adjustments ────────────────────────── */
+
+/**
+ * A synthetic ledger, built backwards from the current balance.
+ *
+ * Backwards on purpose: `balanceBefore`/`balanceAfter` are the whole point of the
+ * ledger, and the only way for the newest entry's `balanceAfter` to actually
+ * equal the balance shown above it is to start from that number and work down.
+ * Built forwards from an invented opening balance, the preview would show a
+ * wallet that does not reconcile — which is the alarm state, not the normal one.
+ */
+const previewLedger = new Map<string, Json[]>();
+
+function walletLedgerFor(userId: string): Json[] {
+  const existing = previewLedger.get(userId);
+  if (existing) return existing;
+
+  const user = users.find((u) => u.id === userId);
+  let running = Number(user?.walletBalance ?? 0);
+  const movements = transactions
+    .filter((t) => t.userId === userId && t.currencyType === "FIAT" && t.status === "COMPLETED")
+    .slice(0, 20);
+
+  const entries: Json[] = movements.map((t, index) => {
+    const credit = t.transactionType === "FIAT_DEPOSIT" || t.transactionType === "WALLET_FUNDING";
+    const amount = Number(t.amount);
+    const after = running;
+    const before = credit ? after - amount : after + amount;
+    running = before;
+    return {
+      id: `led-${userId}-${index}`,
+      direction: credit ? "CREDIT" : "DEBIT",
+      amountNaira: amount.toFixed(2),
+      balanceBefore: before.toFixed(2),
+      balanceAfter: after.toFixed(2),
+      source: credit ? "DEPOSIT_WEBHOOK" : t.transactionType,
+      reference: t.reference,
+      narration: credit ? "Bank transfer" : null,
+      createdAt: t.createdAt,
+    };
+  });
+
+  previewLedger.set(userId, entries);
+  return entries;
+}
+
+route("GET", `${adminPaths.ledger}/statement/:userId`, (req, [userId]) => {
+  const limit = Math.min(Number(req.query.get("limit") ?? 200) || 200, 1000);
+  const entries = walletLedgerFor(userId ?? "").slice(0, limit);
+  return json({
+    success: true,
+    data: { entries, gaps: [], reconciles: true },
+  });
+});
+
+/**
+ * Manual credit and debit.
+ *
+ * The preview enforces the same shape the API does — the four credentials are
+ * accepted without being checked (there is nothing here to check them against),
+ * but the amount rules, the insufficient-balance refusal and the
+ * `recordTransaction`/`notifyCustomer` reporting all behave as they will in
+ * production, which is what makes the dialog worth previewing at all.
+ */
+function adjustWallet(direction: "credit" | "debit", body: Json): Response {
+  const identifier = text(body.identifier).trim().toLowerCase();
+  const user = users.find(
+    (u) =>
+      u.id === text(body.identifier).trim() ||
+      u.email.toLowerCase() === identifier ||
+      u.userName.toLowerCase() === identifier,
+  );
+  if (!user) return notFound(`No user found for "${text(body.identifier)}".`);
+
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return json({ message: "Amount must be a positive number." }, 400);
+  }
+  if (amount >= 100_000_000) {
+    return json(
+      { message: "Amount exceeds the maximum a single credit can record (₦99,999,999.99)." },
+      400,
+    );
+  }
+
+  const balanceBefore = Number(user.walletBalance);
+  if (direction === "debit" && balanceBefore < amount) {
+    return json(
+      {
+        message:
+          `Insufficient balance. The account holds ₦${balanceBefore.toLocaleString()}, ` +
+          `which will not cover a ₦${amount.toLocaleString()} debit.`,
+      },
+      400,
+    );
+  }
+
+  const balanceAfter =
+    Math.round((direction === "credit" ? balanceBefore + amount : balanceBefore - amount) * 100) /
+    100;
+  user.walletBalance = balanceAfter.toFixed(2);
+
+  const statementRowWritten = body.recordTransaction !== false;
+  const customerNotified = body.notifyCustomer !== false;
+  const reference = `FLP-${direction === "debit" ? "DEBIT-" : ""}${crypto.randomUUID()}`;
+  const narration = text(body.narration).trim();
+
+  // The ledger entry is written whatever the options say — that is the whole
+  // point of the distinction the dialog draws.
+  walletLedgerFor(user.id).unshift({
+    id: `led-${crypto.randomUUID()}`,
+    direction: direction === "credit" ? "CREDIT" : "DEBIT",
+    amountNaira: amount.toFixed(2),
+    balanceBefore: balanceBefore.toFixed(2),
+    balanceAfter: balanceAfter.toFixed(2),
+    source: direction === "credit" ? "ADMIN_CREDIT" : "ADMIN_DEBIT",
+    reference,
+    narration: narration
+      ? `Manual ${direction} by an admin: ${narration}`
+      : `Manual ${direction} by an admin`,
+    createdAt: new Date().toISOString(),
+  });
+
+  audit(
+    direction === "credit" ? "USER_WALLET_MANUALLY_CREDITED" : "USER_WALLET_MANUALLY_DEBITED",
+    {
+      recipientId: user.id,
+      recipientEmail: user.email,
+      amount,
+      reference,
+      statementRowWritten,
+      customerNotified,
+    },
+    { type: "user", id: user.id },
+    narration || undefined,
+  );
+
+  return json({
+    message:
+      `₦${amount.toLocaleString()} ${direction === "credit" ? "credited to" : "debited from"} ` +
+      `${fullName(user)}.` +
+      (statementRowWritten ? "" : " No statement entry was created.") +
+      (customerNotified ? "" : " The customer was not notified.") +
+      " (Preview only: nothing leaves this browser.)",
+    data: {
+      recipient: { id: user.id, email: user.email, userName: user.userName },
+      amount,
+      reference,
+      balanceBefore,
+      balanceAfter,
+      statementRowWritten,
+      customerNotified,
+    },
+  });
+}
+
+route("POST", `${core}/credit-user`, (req) => adjustWallet("credit", req.body));
+route("POST", `${core}/debit-user`, (req) => adjustWallet("debit", req.body));
+
 route("GET", `${core}/user-statement-download/:id`, (_r, [id]) => {
   const rows = transactions.filter((t) => t.userId === id);
   const csv = [
@@ -564,6 +896,80 @@ route("GET", `${adminPaths.transactions}/all`, (req) => {
     success: true,
     data: { transactions: p.rows, pagination: { total: p.total, page: p.page, limit: p.limit } },
   });
+});
+
+// Declared before "/:id/flag" shaped routes for the same reason the API declares
+// it first: a literal path has to beat a parameter route that could swallow it.
+route("GET", `${adminPaths.transactions}/flags/summary`, () => {
+  const counts: Record<string, number> = { total: 0 };
+  for (const tx of openFlags()) {
+    const key = tx.flagSeverity ?? "UNSPECIFIED";
+    counts[key] = (counts[key] ?? 0) + 1;
+    counts.total = (counts.total ?? 0) + 1;
+  }
+  return json({ success: true, data: counts });
+});
+
+route("POST", `${adminPaths.transactions}/:id/flag`, (req, [id]) => {
+  const tx = transactions.find((t) => t.id === id);
+  if (!tx) return notFound("Transaction not found");
+  if (tx.flaggedAt && !tx.flagClearedAt) {
+    return json(
+      {
+        success: false,
+        code: "ALREADY_FLAGGED",
+        message: "This transaction already has an open flag. Open it to see who raised it and why.",
+      },
+      409,
+    );
+  }
+  const note = text(req.body.note).trim();
+  if (note.length < 10) {
+    return json({ success: false, message: "A note of at least 10 characters is required." }, 400);
+  }
+  tx.flaggedAt = new Date().toISOString();
+  tx.flagReason = text(req.body.reason) || "OTHER";
+  tx.flagSeverity = text(req.body.severity) || "MEDIUM";
+  tx.flagNote = note;
+  tx.flaggedByAdminId = PREVIEW_ADMIN_ID;
+  tx.flagClearedAt = null;
+  tx.flagClearedByAdminId = null;
+  tx.flagResolution = null;
+  audit(
+    "TRANSACTION_FLAGGED",
+    { transactionId: tx.id, reference: tx.reference, flagReason: tx.flagReason },
+    { type: "transaction", id: tx.id },
+    note,
+  );
+  return json({ success: true, message: "Transaction flagged for review.", data: tx });
+});
+
+route("POST", `${adminPaths.transactions}/:id/flag/clear`, (req, [id]) => {
+  const tx = transactions.find((t) => t.id === id);
+  if (!tx) return notFound("Transaction not found");
+  if (!tx.flaggedAt || tx.flagClearedAt) {
+    return json(
+      { success: false, code: "NOT_FLAGGED", message: "This transaction has no open flag." },
+      409,
+    );
+  }
+  const resolution = text(req.body.resolution).trim();
+  if (resolution.length < 10) {
+    return json(
+      { success: false, message: "A resolution of at least 10 characters is required." },
+      400,
+    );
+  }
+  tx.flagClearedAt = new Date().toISOString();
+  tx.flagClearedByAdminId = PREVIEW_ADMIN_ID;
+  tx.flagResolution = resolution;
+  audit(
+    "TRANSACTION_FLAG_CLEARED",
+    { transactionId: tx.id, reference: tx.reference, flagReason: tx.flagReason },
+    { type: "transaction", id: tx.id },
+    resolution,
+  );
+  return json({ success: true, message: "Flag cleared.", data: tx });
 });
 
 // KYC
@@ -1193,6 +1599,186 @@ route("GET", `${fin}/nomba/balance`, () => {
   });
 });
 route("GET", `${fin}/payout-providers`, () => json({ success: true, data: payoutProviders }));
+
+/**
+ * The one call the treasury page's headline figures come from.
+ *
+ * Returns the accounts, the customer liability and the coverage together, so
+ * the three numbers on screen were read at the same instant — which is the
+ * whole reason the console uses this instead of assembling them itself.
+ */
+route("GET", `${fin}/payout-providers/balances`, () => {
+  const liability = users.reduce((sum, u) => sum + Number(u.walletBalance), 0);
+  const active = payoutProviders.find((p) => p.isActive) ?? payoutProviders[0];
+  const coverage = (active?.cachedBalance ?? 0) - liability;
+  return json({
+    success: true,
+    data: {
+      providers: payoutProviders,
+      activeProvider: active ?? null,
+      nombaSettlement: {
+        balance: payoutProviders[0]?.cachedBalance ?? 0,
+        currency: "NGN",
+        lastSynced: new Date().toISOString(),
+      },
+      totalUserLiability: liability,
+      coverage,
+      isUnderFunded: coverage < 0,
+    },
+  });
+});
+
+route("POST", `${fin}/payout-providers/sync-balance`, (req) => {
+  const provider = payoutProviders.find((p) => p.id === text(req.body.providerId));
+  if (!provider) return notFound("Provider not found");
+  provider.lastSyncedAt = new Date().toISOString();
+  return json({ success: true, message: "Provider balance synced successfully.", data: provider });
+});
+
+route("POST", `${fin}/payout-providers/switch`, (req) => {
+  const provider = payoutProviders.find((p) => p.id === text(req.body.providerId));
+  if (!provider) return notFound("Provider not found");
+  for (const p of payoutProviders) p.isActive = p.id === provider.id;
+  audit(
+    "PAYOUT_PROVIDER_SWITCHED",
+    { providerId: provider.id, provider: provider.provider },
+    { type: "payoutProvider", id: provider.id },
+  );
+  return json({
+    success: true,
+    message: `Active payout provider successfully switched to ${provider.name}`,
+    data: provider,
+  });
+});
+
+route("GET", `${fin}/transfers`, (req) => {
+  const direction = req.query.get("direction");
+  const status = req.query.get("status");
+  const from = req.query.get("startDate");
+  const to = req.query.get("endDate");
+  const rows = treasuryMovements.filter(
+    (m) =>
+      (!direction || m.transferDirection === direction) &&
+      (!status || m.status === status) &&
+      (!from && !to ? true : inRange(m.createdAt, from, to)),
+  );
+  const paged = page(rows, req.query, 25);
+  return json({
+    data: {
+      transfers: paged.rows,
+      total: paged.total,
+      page: paged.page,
+      limit: paged.limit,
+      totalPages: Math.max(1, Math.ceil(paged.total / paged.limit)),
+    },
+  });
+});
+
+/* ─── Crypto reserves ────────────────────────────────────────────────────── */
+
+const adminWallet = adminPaths.wallet;
+
+route("GET", `${adminWallet}/get-wallets`, () =>
+  json({ message: "Admin wallets fetched successfully", wallets: cryptoReserves }),
+);
+
+route("POST", `${adminWallet}/sync-balances`, () =>
+  json({
+    message: "Admin wallet balances synced successfully",
+    wallets: cryptoReserves,
+    syncedAt: new Date().toISOString(),
+  }),
+);
+
+route("GET", `${adminWallet}/withdrawal-limit`, () => {
+  // A used figure well short of the ceiling, so the dialog shows a budget
+  // rather than a block — the block is the exceptional state, not the default.
+  const limit = 5_000_000;
+  const used = 1_250_000;
+  return json({
+    success: true,
+    data: { limit, used, remaining: limit - used, currency: "NGN", windowHours: 24 },
+  });
+});
+
+/**
+ * Resolve a withdrawal destination.
+ *
+ * Mirrors the API's three verdicts, because they are what the dialog branches
+ * on: a known username is internal and free, a long opaque string is external
+ * and irreversible, and anything else is refused outright.
+ */
+route("POST", `${adminWallet}/resolve-recipient`, (req) => {
+  const identifier = text(req.body.identifier).trim();
+  const currency = text(req.body.currency).toUpperCase();
+  if (!identifier) return json({ success: false, data: { kind: "not_found" } });
+
+  const owner = users.find(
+    (u) =>
+      u.userName.toLowerCase() === identifier.toLowerCase() ||
+      u.email.toLowerCase() === identifier.toLowerCase(),
+  );
+  if (owner) {
+    return json({
+      success: true,
+      data: {
+        kind: "internal",
+        via: identifier.includes("@") ? "email" : "username",
+        onChain: false,
+        feeApplies: false,
+        recipientName: fullName(owner),
+        recipientUserName: owner.userName,
+        note: "Flurrypay to Flurrypay — no network fee.",
+      },
+    });
+  }
+
+  if (identifier.length >= 20 && !identifier.includes("@")) {
+    return json({
+      success: true,
+      data: {
+        kind: "external",
+        via: "address",
+        onChain: true,
+        feeApplies: true,
+        address: identifier,
+        feeEstimate: { fee: currency === "BTC" ? 0.0002 : 1.2, currency },
+        note: "This address is outside Flurrypay. The transfer goes on-chain, costs a network fee, and cannot be reversed.",
+      },
+    });
+  }
+
+  return json({
+    success: false,
+    data: {
+      kind: "not_found",
+      message: `No Flurrypay account uses ${identifier}.`,
+    },
+  });
+});
+
+route("POST", `${adminWallet}/withdrawal`, (req) => {
+  const currency = text(req.body.currency).toUpperCase();
+  const amount = Number(req.body.amount);
+  const reserve = cryptoReserves.find((r) => r.coinTicker === currency);
+  if (!reserve) return notFound(`No ${currency} reserve`);
+  if (!(amount > 0)) return json({ message: "amount must be a positive number" }, 400);
+
+  const held = Number(reserve.coinBalance.cryptoBalance);
+  if (amount > held) {
+    return json({ message: `The ${currency} reserve holds ${held}.` }, 400);
+  }
+  reserve.coinBalance.cryptoBalance = (held - amount).toFixed(8);
+  audit(
+    "MAKE_WITHDRAWAL",
+    { currency, amount, destination: text(req.body.address) || text(req.body.userName) },
+    { type: "treasury", id: currency },
+  );
+  return json({
+    message: "Withdrawal sent (preview only: nothing leaves this browser).",
+    transactionReference: `PRV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+  });
+});
 route("GET", `${fin}/earnings`, (req) => {
   const q = req.query;
   const rows = earnings.filter(

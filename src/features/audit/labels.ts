@@ -167,6 +167,37 @@ export const AUDIT_ACTIONS: Record<string, ActionInfo> = {
     category: "Money",
     tone: "danger",
   },
+  TRANSACTION_FLAGGED: {
+    label: "Flagged transaction for review",
+    category: "Compliance",
+    tone: "warning",
+  },
+  TRANSACTION_FLAG_CLEARED: {
+    label: "Cleared transaction flag",
+    category: "Compliance",
+    tone: "neutral",
+  },
+  /*
+    Written with adminId "SYSTEM_RISK_ENGINE" when no person triggered it, and
+    with the real administrator when their escalation raised the case severity.
+    Toned danger either way: it cuts a customer off from sending their own money,
+    and that is the entry anyone auditing a complaint goes looking for.
+  */
+  USER_OUTBOUND_RESTRICTED_AUTOMATICALLY: {
+    label: "Outbound restricted automatically (risk)",
+    category: "Compliance",
+    tone: "danger",
+  },
+  SUPPORT_MESSAGE_REPLIED: {
+    label: "Replied to support message",
+    category: "Users",
+    tone: "info",
+  },
+  SUPPORT_MESSAGE_STATUS_CHANGED: {
+    label: "Changed support message status",
+    category: "Users",
+    tone: "neutral",
+  },
 };
 
 export function auditActionInfo(action: string): ActionInfo {
