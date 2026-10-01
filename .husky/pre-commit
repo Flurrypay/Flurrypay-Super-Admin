@@ -1,0 +1,2 @@
+pnpm exec next typegen >/dev/null
+pnpm exec lint-staged

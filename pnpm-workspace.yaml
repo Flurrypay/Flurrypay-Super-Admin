@@ -1,0 +1,3 @@
+# Dependency lifecycle scripts are denied unless explicitly reviewed here.
+allowBuilds:
+  unrs-resolver: false

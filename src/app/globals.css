@@ -1,0 +1,209 @@
+@import "tailwindcss";
+
+/* Dark mode is class-driven (`<html class="dark">`) so it can later follow a user preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Components reference semantic tokens (bg-primary, text-muted-foreground, …),
+ * never raw palette values, so themes change in one place.
+ * Brand: indigo on charcoal neutrals.
+ */
+:root {
+  --background: #f7f8fa;
+  --foreground: #1b1e24;
+
+  --card: #ffffff;
+  --card-foreground: #1b1e24;
+  --popover: #ffffff;
+  --popover-foreground: #1b1e24;
+
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+
+  --secondary: #eceef2;
+  --secondary-hover: #e1e4ea;
+  --secondary-foreground: #1b1e24;
+
+  --muted: #f0f1f4;
+  --muted-foreground: #5a606d;
+
+  --accent: #eef0ff;
+  --accent-foreground: #3730a3;
+
+  --destructive: #dc2626;
+  --destructive-hover: #b91c1c;
+  --destructive-foreground: #ffffff;
+
+  --success: #047857;
+  --warning: #b45309;
+  --info: #0369a1;
+
+  --border: #e2e4e9;
+  --input: #cfd3db;
+  --ring: #6366f1;
+
+  --radius: 0.5rem;
+
+  /* Chart series (categorical, fixed order). Validated against --card with the
+     dataviz palette check: slot 3 is under 3:1 here, so charts ship a table view. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-grid: #eceef2;
+}
+
+.dark {
+  --background: #121418;
+  --foreground: #e8eaef;
+
+  --card: #1a1d23;
+  --card-foreground: #e8eaef;
+  --popover: #1f2229;
+  --popover-foreground: #e8eaef;
+
+  --primary: #4f46e5;
+  --primary-hover: #5b54ea;
+  --primary-foreground: #ffffff;
+
+  --secondary: #262a32;
+  --secondary-hover: #2f343d;
+  --secondary-foreground: #e8eaef;
+
+  --muted: #22252c;
+  --muted-foreground: #9aa0ad;
+
+  --accent: #262848;
+  --accent-foreground: #c7d2fe;
+
+  --destructive: #dc2626;
+  --destructive-hover: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+
+  --border: #2c3039;
+  --input: #3a3f4a;
+  --ring: #818cf8;
+
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-grid: #262a32;
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+}
+
+/* Charcoal neutral scale for supporting surfaces and illustrations. */
+@theme {
+  --color-charcoal-50: #f7f8fa;
+  --color-charcoal-100: #eceef2;
+  --color-charcoal-200: #d9dce3;
+  --color-charcoal-300: #b8bdc8;
+  --color-charcoal-400: #8d93a1;
+  --color-charcoal-500: #6b7180;
+  --color-charcoal-600: #525866;
+  --color-charcoal-700: #3d424d;
+  --color-charcoal-800: #2a2e36;
+  --color-charcoal-900: #1b1e24;
+  --color-charcoal-950: #121418;
+}
+
+/* Motion is limited to overlays entering; prefers-reduced-motion disables it below. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    transform: translateY(-2px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
