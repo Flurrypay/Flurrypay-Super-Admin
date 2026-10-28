@@ -81,6 +81,29 @@ describe("linked KYC admin review", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
+  it("keeps previous documents accessible for already-approved legacy customers", () => {
+    access.allowed = true;
+    const approved = profile(false);
+    approved.level3.status = "VERIFIED";
+    approved.level3.frontUrl = "private/previous-id/u1/front.jpg";
+    approved.review = {
+      category: "COMPLETED",
+      legacySubmission: false,
+      retainedAddressDocument: true,
+      missingSteps: [],
+      canApprove: false,
+    };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Tooltip.Provider>
+          <KycSummary profile={approved} customerName="Ada Okafor" />
+        </Tooltip.Provider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Previous verification documents")).toBeInTheDocument();
+    expect(screen.getByText("Previous ID front")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
   it("maps the same NIN/address/live-capture evidence from the user-detail endpoint", () => {
     const raw = {
       id: "k1",

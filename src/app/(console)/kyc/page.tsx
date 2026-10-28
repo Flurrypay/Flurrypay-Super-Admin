@@ -11,7 +11,7 @@ export default function KycPage() {
     <AccessGuard rule={{ permission: "kyc.review" }}>
       <PageHeader
         title="KYC review"
-        description="Identity verification decisions. Approving a level raises the customer's withdrawal limit."
+        description="Track automatic BVN and NIN checks, review Level 3 evidence, and follow up on legacy submissions."
       />
       <KycQueueView />
     </AccessGuard>

@@ -32,6 +32,7 @@ import { useAdmin } from "@/features/auth/admin-context";
 import { hasPermission } from "@/features/auth/permissions";
 import { fetchComplianceDashboard } from "@/features/compliance/api";
 import { fetchKycQueue } from "@/features/kyc/api";
+import { KycWorkflowOverview } from "@/features/kyc/kyc-workflow-overview";
 import { fetchStrandedSummary } from "@/features/operations/api";
 import { fetchUsersReport } from "@/features/reports/api";
 import { fetchRiskOverview } from "@/features/risk/api";
@@ -68,9 +69,11 @@ export function OverviewView() {
   const [failed24h, pending, processing] = counts;
 
   const kyc = useQuery({
-    queryKey: ["kyc-queue", "pending"],
-    queryFn: ({ signal }) => fetchKycQueue({ filter: "pending", page: 1, pageSize: 1 }, signal),
+    queryKey: ["kyc-queue", "ready"],
+    queryFn: ({ signal }) =>
+      fetchKycQueue({ filter: "ready", page: 1, pageSize: 1, summaryOnly: true }, signal),
     enabled: canKyc,
+    refetchInterval: 30_000,
   });
   const kycAwaiting = kyc.data?.total;
 
@@ -150,6 +153,7 @@ export function OverviewView() {
           )
         }
       />
+      {canKyc && <KycWorkflowOverview summary={kyc.data?.summary} error={kyc.isError} />}
 
       {(!admin.hasActivated2FA || !admin.pinIsSet) && (
         <Alert tone="warning">
@@ -243,14 +247,14 @@ export function OverviewView() {
           )}
           {canKyc && (
             <Metric
-              label="KYC awaiting review"
+              label="Level 3 ready for review"
               value={kycAwaiting}
               icon={ScanFaceIcon}
               attention
               isPending={kyc.isPending}
               isError={kyc.isError}
-              definition="Customers with at least one KYC level pending, as in the KYC queue’s “Awaiting review” view."
-              href="/kyc"
+              definition="Level 3 submissions with complete linked identity, live capture and address evidence."
+              href="/kyc?filter=ready"
             />
           )}
           {canUsers && (

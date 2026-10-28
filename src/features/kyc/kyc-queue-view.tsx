@@ -35,11 +35,15 @@ import { cn } from "@/lib/utils";
 
 import { fetchKycQueue, fetchUserKyc, KYC_FILTERS, type KycFilter, type KycProfile } from "./api";
 import { KycSummary } from "./kyc-summary";
+import { KycWorkflowOverview } from "./kyc-workflow-overview";
 import { KYC_STATUS } from "./labels";
 
 const FILTER_LABELS: Record<KycFilter, string> = {
-  pending: "Awaiting review",
-  verified: "Verified",
+  ready: "Ready for review",
+  action_required: "Needs customer action",
+  legacy: "Legacy submissions",
+  pending: "Level 3 submissions",
+  verified: "Verified records",
   rejected: "Rejected",
   all: "All",
 };
@@ -47,10 +51,6 @@ const FILTER_LABELS: Record<KycFilter, string> = {
 function customerName(profile: KycProfile): string {
   if (!profile.user) return "Unknown customer";
   return `${profile.user.firstName} ${profile.user.lastName}`.trim() || profile.user.email;
-}
-
-function pendingLevels(profile: KycProfile): number[] {
-  return ([3] as const).filter((level) => profile[`level${level}`].status === "PENDING");
 }
 
 /** The API orders by last update only. */
@@ -67,7 +67,7 @@ function LevelStatus({ status }: { status: string }) {
         <span
           tabIndex={0}
           className={cn(
-            "inline-flex size-6 items-center justify-center rounded-sm border",
+            "inline-flex items-center justify-center gap-1.5 rounded-full border px-2 py-1 text-xs",
             info.tone === "success" && "border-success/25 bg-success/8 text-success",
             info.tone === "warning" && "border-warning/30 bg-warning/10 text-warning",
             info.tone === "danger" && "border-destructive/25 bg-destructive/8 text-destructive",
@@ -75,7 +75,7 @@ function LevelStatus({ status }: { status: string }) {
           )}
         >
           <Icon className="size-3.5" aria-hidden />
-          <span className="sr-only">{info.label}</span>
+          <span>{info.label}</span>
         </span>
       </TooltipTrigger>
       <TooltipContent>{info.label}</TooltipContent>
@@ -87,7 +87,7 @@ export function KycQueueView() {
   const canViewUsers = useHasPermission("users.view");
   const [filter, setFilter] = useQueryState(
     "filter",
-    parseAsStringLiteral(KYC_FILTERS).withDefault("pending"),
+    parseAsStringLiteral(KYC_FILTERS).withDefault("ready"),
   );
   const table = useTableUrlState({ sortKeys: SORT_KEYS });
   const [open, setOpen] = useState<KycProfile | null>(null);
@@ -123,36 +123,59 @@ export function KycQueueView() {
         exportValue: (p) => p.user?.email,
       },
       {
-        id: "awaiting",
-        header: "Awaiting",
-        description: "Levels submitted and waiting for an administrator decision.",
-        cell: (p) => {
-          const levels = pendingLevels(p);
-          return levels.length > 0 ? (
-            <span className="flex gap-1">
-              {levels.map((level) => (
-                <Badge key={level} tone="warning">
-                  Level {level}
-                </Badge>
-              ))}
-            </span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          );
-        },
-        exportValue: (p) => pendingLevels(p).join(" "),
-      },
-      {
-        id: "levels",
-        header: "L1 · L2 · L3",
+        id: "readiness",
+        header: "Next action",
+        required: true,
         cell: (p) => (
-          <span className="flex gap-1">
-            <LevelStatus status={p.level1.status} />
-            <LevelStatus status={p.level2.status} />
-            <LevelStatus status={p.level3.status} />
+          <span className="grid max-w-64 gap-1">
+            <Badge
+              tone={
+                p.review?.category === "READY"
+                  ? "success"
+                  : p.review?.category === "COMPLETED"
+                    ? "neutral"
+                    : "warning"
+              }
+            >
+              {p.review?.category === "READY"
+                ? "Review address"
+                : p.review?.category === "LEGACY"
+                  ? "Legacy follow-up"
+                  : p.review?.category === "COMPLETED"
+                    ? "Completed"
+                    : "Customer action"}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {p.review?.missingSteps[0] ||
+                (p.level3.canApprove
+                  ? "All required evidence complete"
+                  : "Open profile for verification details")}
+            </span>
           </span>
         ),
-        exportValue: (p) => [p.level1.status, p.level2.status, p.level3.status].join(" / "),
+        exportValue: (p) => [p.review?.category, ...(p.review?.missingSteps || [])].join(" · "),
+      },
+      {
+        id: "bvn",
+        header: "BVN · Automatic",
+        cell: (p) => (
+          <LevelStatus status={p.level1.providerVerified ? p.level1.status : "NOT_STARTED"} />
+        ),
+        exportValue: (p) => (p.level1.providerVerified ? "VERIFIED" : "REQUIRED"),
+      },
+      {
+        id: "nin",
+        header: "NIN · Automatic",
+        cell: (p) => (
+          <LevelStatus status={p.level2.identityMatched ? p.level2.status : "NOT_STARTED"} />
+        ),
+        exportValue: (p) => (p.level2.identityMatched ? "VERIFIED" : "REQUIRED"),
+      },
+      {
+        id: "level3",
+        header: "Level 3 · Review",
+        cell: (p) => <LevelStatus status={p.level3.status} />,
+        exportValue: (p) => p.level3.status,
       },
       {
         id: "flags",
@@ -196,25 +219,33 @@ export function KycQueueView() {
   const preferences = useTablePreferences("kyc-queue", columns);
 
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="grid min-w-0 grid-cols-1 gap-5">
+      <KycWorkflowOverview
+        summary={result.data?.summary}
+        filter={filter}
+        error={result.isError}
+        onSelect={(value) => {
+          void setFilter(value);
+          table.setPage(1);
+        }}
+      />
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <div
-          role="tablist"
-          aria-label="KYC status"
-          className="flex rounded-md border bg-card p-0.5"
+          role="group"
+          aria-label="Verification queue filters"
+          className="flex max-w-full min-w-0 gap-0.5 overflow-x-auto rounded-lg border bg-card p-1"
         >
           {KYC_FILTERS.map((value) => (
             <button
               key={value}
               type="button"
-              role="tab"
-              aria-selected={filter === value}
+              aria-pressed={filter === value}
               onClick={() => {
                 void setFilter(value);
                 table.setPage(1);
               }}
               className={cn(
-                "h-7 rounded-sm px-2.5 text-sm transition-colors",
+                "h-8 shrink-0 rounded-md px-2.5 text-xs transition-colors",
                 filter === value
                   ? "bg-accent font-medium text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -270,18 +301,21 @@ export function KycQueueView() {
         rows={pageRows}
         getRowId={(p) => p.id}
         density={preferences.density}
-        isLoading={result.isFetching}
+        isLoading={result.isPending}
         error={result.error}
         onRetry={() => void result.refetch()}
         onRowActivate={setOpen}
         activeRowId={open?.id}
         empty={
-          filter === "pending"
+          filter === "ready" || filter === "pending"
             ? {
                 icon: ScanFaceIcon,
-                title: "Nothing awaiting review",
+                title:
+                  filter === "ready"
+                    ? "No complete submissions awaiting review"
+                    : "No Level 3 submissions",
                 description:
-                  "Level 3 proof-of-address submissions appear here. BVN and NIN are verified automatically.",
+                  "Use Needs customer action or Legacy submissions to follow up on incomplete records.",
               }
             : {
                 icon: ScanFaceIcon,

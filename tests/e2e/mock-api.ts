@@ -8,10 +8,10 @@ import type { Page, Route } from "@playwright/test";
  */
 
 export const API_ORIGIN = "http://localhost:4000";
-const APP_ORIGIN = "http://localhost:3000";
+const APP_ORIGIN = `http://localhost:${Number(process.env.PORT ?? 3000)}`;
 
-/** A JWT-shaped token whose payload carries a far-future `exp`. */
-export const TEST_TOKEN = `test.${Buffer.from(JSON.stringify({ exp: 4102444800 })).toString("base64url")}.sig`;
+/** A test session within the browser timer range; distant expiries overflow setTimeout. */
+export const TEST_TOKEN = `test.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.sig`;
 
 export interface TestAdmin {
   id: string;

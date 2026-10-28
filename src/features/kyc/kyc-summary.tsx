@@ -97,6 +97,49 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
 
   return (
     <div className="grid gap-4">
+      {profile.review && profile.review.missingSteps.length > 0 && (
+        <section
+          className="rounded-xl border border-warning/25 bg-warning/5 p-4"
+          aria-label="Required verification steps"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">
+              {profile.review.legacySubmission
+                ? "Legacy submission · follow-up required"
+                : "Customer action required"}
+            </h3>
+            <span className="text-xs text-muted-foreground">Current tier retained</span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            {profile.review.retainedAddressDocument
+              ? "The existing address document is retained and available below. "
+              : ""}
+            Complete the missing steps before a new Level 3 decision.
+          </p>
+          <ol className="mt-3 grid gap-2">
+            {profile.review.missingSteps.map((step, index) => (
+              <li key={step} className="flex gap-2 text-xs">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full border bg-background font-medium">
+                  {index + 1}
+                </span>
+                <span className="pt-0.5">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {(profile.level3.frontUrl || profile.level3.backUrl) && (
+        <DetailSection
+          title="Previous verification documents"
+          description="Retained records from the earlier flow; these do not replace the current identity and live-capture checks."
+        >
+          <div className="flex flex-wrap gap-4">
+            <KycDocument location={profile.level3.frontUrl} label="Previous ID front" />
+            <KycDocument location={profile.level3.backUrl} label="Previous ID back" />
+          </div>
+        </DetailSection>
+      )}
+
       <DetailSection title="Limits">
         <DetailList
           columns={2}

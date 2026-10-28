@@ -9,7 +9,15 @@ const base = adminPaths.kyc;
 
 export const KYC_STATUSES = ["NOT_STARTED", "PENDING", "VERIFIED", "REJECTED", "EXPIRED"] as const;
 export type KycStatus = (typeof KYC_STATUSES)[number];
-export const KYC_FILTERS = ["pending", "verified", "rejected", "all"] as const;
+export const KYC_FILTERS = [
+  "ready",
+  "action_required",
+  "legacy",
+  "pending",
+  "verified",
+  "rejected",
+  "all",
+] as const;
 export type KycFilter = (typeof KYC_FILTERS)[number];
 export type KycLevel = 1 | 2 | 3;
 
@@ -26,9 +34,27 @@ const status = z.enum(KYC_STATUSES).catch("NOT_STARTED");
  * payloads (docs/03-gaps-and-security.md S4); only the last four digits of
  * identifiers are kept, and provider payloads are discarded at parse time.
  */
+export const kycQueueSummarySchema = z.object({
+  all: z.number(),
+  ready: z.number(),
+  actionRequired: z.number(),
+  legacy: z.number(),
+});
+export type KycQueueSummary = z.infer<typeof kycQueueSummarySchema>;
+const reviewSchema = z
+  .object({
+    category: z.enum(["READY", "LEGACY", "CUSTOMER_ACTION", "COMPLETED", "NOT_STARTED"]),
+    legacySubmission: z.boolean(),
+    retainedAddressDocument: z.boolean(),
+    missingSteps: z.array(z.string()),
+    canApprove: z.boolean(),
+  })
+  .nullish();
+
 export const kycProfileSchema = z.object({
   id: z.string(),
   userId: z.string(),
+  review: reviewSchema,
   user: z
     .object({
       firstName: z.string().catch(""),
@@ -132,6 +158,7 @@ const listItemSchema = z.preprocess((raw) => {
 
 export interface KycQueueQuery {
   filter: KycFilter;
+  summaryOnly?: boolean;
   page: number;
   pageSize: number;
   /** Matches customer email, first and last name and username. */
@@ -143,13 +170,18 @@ export function fetchKycQueue(query: KycQueueQuery, signal?: AbortSignal) {
   return adminApi.get(`${base}/list`, {
     query: {
       filter: query.filter,
+      summaryOnly: query.summaryOnly || undefined,
       page: query.page,
       limit: query.pageSize,
       search: query.search?.trim() || undefined,
     },
     schema: z
-      .object({ data: z.array(listItemSchema), total: z.number() })
-      .transform((v) => ({ rows: v.data, total: v.total })),
+      .object({
+        data: z.array(listItemSchema),
+        total: z.number(),
+        summary: kycQueueSummarySchema.nullish(),
+      })
+      .transform((v) => ({ rows: v.data, total: v.total, summary: v.summary })),
     signal,
   });
 }

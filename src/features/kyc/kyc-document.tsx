@@ -40,7 +40,7 @@ export function KycDocument({ location, label }: { location: string | null; labe
 
   const isPdf = /\.pdf(\?|$)/i.test(location);
   return (
-    <figure className="grid gap-1.5">
+    <figure className="grid max-w-full min-w-0 gap-1.5">
       {isPdf ? (
         <a
           href={url.data}
@@ -52,13 +52,18 @@ export function KycDocument({ location, label }: { location: string | null; labe
           Open {label} (PDF)
         </a>
       ) : (
-        <a href={url.data} target="_blank" rel="noreferrer noopener" className="block w-fit">
+        <a
+          href={url.data}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="block w-fit max-w-full"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL from the API */}
           <img
             src={url.data}
             alt={label}
             referrerPolicy="no-referrer"
-            className="max-h-56 max-w-72 rounded-md border bg-muted object-contain"
+            className="max-h-56 max-w-full rounded-md border bg-muted object-contain sm:max-w-72"
           />
         </a>
       )}
