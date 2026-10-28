@@ -40,12 +40,17 @@ export const KYC_STATUS: StatusMap<KycStatus> = {
 
 export const KYC_LEVEL_INFO = {
   1: {
-    title: "Level 1 · Identity",
-    description: "BVN or NIN matched against the national registry. Verified automatically.",
+    title: "Level 1 · BVN",
+    description: "BVN verified automatically against the registry.",
   },
-  2: { title: "Level 2 · Address", description: "Proof of address and address verification." },
+  2: {
+    title: "Level 2 · NIN",
+    description:
+      "NIN verified automatically and matched to the BVN names, date of birth and gender.",
+  },
   3: {
-    title: "Level 3 · Government ID",
-    description: "Government ID document, liveness and face match.",
+    title: "Level 3 · Address and live identity",
+    description:
+      "Proof of address reviewed after a server-verified live capture matches the verified NIN photograph.",
   },
 } as const;

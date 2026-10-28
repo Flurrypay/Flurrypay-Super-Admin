@@ -8,7 +8,7 @@ import { getUserMessage } from "@/lib/api/errors";
 
 import { resolveDocumentUrl } from "./api";
 
-const DISPLAYABLE = /^(https:\/\/|data:image\/|private:)/;
+const DISPLAYABLE = /^(https:\/\/|data:image\/|private:|private\/)/;
 
 /**
  * Shows a KYC document. Private files get a short-lived signed URL (5 minutes),

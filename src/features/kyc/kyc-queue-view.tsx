@@ -33,7 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useHasPermission } from "@/features/auth/admin-context";
 import { cn } from "@/lib/utils";
 
-import { fetchKycQueue, KYC_FILTERS, type KycFilter, type KycProfile } from "./api";
+import { fetchKycQueue, fetchUserKyc, KYC_FILTERS, type KycFilter, type KycProfile } from "./api";
 import { KycSummary } from "./kyc-summary";
 import { KYC_STATUS } from "./labels";
 
@@ -50,7 +50,7 @@ function customerName(profile: KycProfile): string {
 }
 
 function pendingLevels(profile: KycProfile): number[] {
-  return ([1, 2, 3] as const).filter((level) => profile[`level${level}`].status === "PENDING");
+  return ([3] as const).filter((level) => profile[`level${level}`].status === "PENDING");
 }
 
 /** The API orders by last update only. */
@@ -96,7 +96,14 @@ export function KycQueueView() {
   const result = useQuery({
     queryKey: ["kyc-queue", query],
     queryFn: ({ signal }) => fetchKycQueue(query, signal),
+    refetchInterval: 30_000,
     placeholderData: keepPreviousData,
+  });
+  const openProfile = useQuery({
+    queryKey: ["user-kyc", open?.userId],
+    queryFn: ({ signal }) => fetchUserKyc(open?.userId ?? "", signal),
+    enabled: open !== null,
+    refetchInterval: 30_000,
   });
   const pageRows = result.data?.rows ?? [];
   const total = result.data?.total ?? 0;
@@ -274,7 +281,7 @@ export function KycQueueView() {
                 icon: ScanFaceIcon,
                 title: "Nothing awaiting review",
                 description:
-                  "New address and ID submissions appear here. Level 1 is verified automatically.",
+                  "Level 3 proof-of-address submissions appear here. BVN and NIN are verified automatically.",
               }
             : {
                 icon: ScanFaceIcon,
@@ -306,7 +313,9 @@ export function KycQueueView() {
             <SheetBody>
               <KycSummary
                 // Keep the drawer in sync after a decision refetches the queue.
-                profile={pageRows.find((p) => p.id === open.id) ?? open}
+                profile={
+                  openProfile.data?.profile ?? pageRows.find((p) => p.id === open.id) ?? open
+                }
                 customerName={customerName(open)}
               />
             </SheetBody>

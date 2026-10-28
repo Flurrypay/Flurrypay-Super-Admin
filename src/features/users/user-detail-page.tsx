@@ -196,6 +196,7 @@ function UserKyc({ userId, name }: { userId: string; name: string }) {
   const result = useQuery({
     queryKey: ["user-kyc", userId],
     queryFn: ({ signal }) => fetchUserKyc(userId, signal),
+    refetchInterval: 30_000,
   });
   if (result.isPending) return <Skeleton className="h-64" />;
   if (result.isError)

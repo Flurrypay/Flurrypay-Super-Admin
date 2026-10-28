@@ -61,7 +61,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
   });
 
   const actions = (level: KycLevel, status: string) =>
-    canReview && status === "PENDING" ? (
+    canReview && level === 3 && status === "PENDING" ? (
       <div className="flex gap-2">
         <Button
           size="sm"
@@ -75,6 +75,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         </Button>
         <Button
           size="sm"
+          disabled={!profile.level3.canApprove}
           onClick={() => {
             setDecision({ level, kind: "approve" });
           }}
@@ -119,6 +120,14 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         />
       </DetailSection>
 
+      {(!level1.providerVerified || !level2.identityMatched) && (
+        <Alert tone="warning">
+          <AlertDescription>
+            Historical tiers remain on record. Complete the linked automatic BVN and NIN checks
+            before a new Level 3 approval.
+          </AlertDescription>
+        </Alert>
+      )}
       <DetailSection
         title={KYC_LEVEL_INFO[1].title}
         description={KYC_LEVEL_INFO[1].description}
@@ -137,27 +146,24 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
           items={[
             {
               label: "Status",
-              value: <StatusBadge status={resolveStatus(KYC_STATUS, level1.status)} />,
+              value: (
+                <StatusBadge
+                  status={resolveStatus(
+                    KYC_STATUS,
+                    level1.providerVerified ? level1.status : "NOT_STARTED",
+                  )}
+                />
+              ),
             },
-            { label: "Verified", value: <DateTime value={level1.verifiedAt} /> },
-            { label: "Identity type", value: level1.identityType },
-            {
-              label: "Identity number",
-              value: level1.identityNumberLast4 ? `•••••••${level1.identityNumberLast4}` : null,
-              hint: "Only the last four digits are shown.",
-            },
+            { label: "BVN verified", value: <DateTime value={level1.bvnVerifiedAt} /> },
             {
               label: "BVN",
               value: level1.bvnLast4 ? `•••••••${level1.bvnLast4}` : null,
               hideWhenEmpty: true,
             },
-            {
-              label: "NIN",
-              value: level1.ninLast4 ? `•••••••${level1.ninLast4}` : null,
-              hideWhenEmpty: true,
-            },
             { label: "Registry name", value: verifiedName || null },
             { label: "Registry birth date", value: level1.verifiedBirthdate },
+            { label: "Registry gender", value: level1.verifiedGender },
           ]}
         />
       </DetailSection>
@@ -167,102 +173,87 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         description={KYC_LEVEL_INFO[2].description}
         actions={actions(2, level2.status)}
       >
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-          <DetailList
-            items={[
-              {
-                label: "Status",
-                value: <StatusBadge status={resolveStatus(KYC_STATUS, level2.status)} />,
-              },
-              { label: "Submitted", value: <DateTime value={level2.submittedAt} /> },
-              {
-                label: "Verified",
-                value: <DateTime value={level2.verifiedAt} />,
-                hideWhenEmpty: true,
-              },
-              { label: "Rejection reason", value: level2.rejectionReason, hideWhenEmpty: true },
-              {
-                label: "Document type",
-                value: level2.proofOfAddressType ? humanizeEnum(level2.proofOfAddressType) : null,
-              },
-              { label: "Address", value: level2.residentialAddress },
-              {
-                label: "Area",
-                value:
-                  [level2.city, level2.lgaName, level2.stateName].filter(Boolean).join(", ") ||
-                  null,
-              },
-              {
-                label: "Address check",
-                value: level2.addressVerificationStatus
-                  ? `${humanizeEnum(level2.addressVerificationStatus)}${level2.addressVerificationIsVague ? " (address flagged as vague)" : ""}`
-                  : null,
-              },
-            ]}
-          />
-          {level2.submitted && (
-            <KycDocument location={level2.documentUrl} label="Proof of address" />
-          )}
-        </div>
+        <DetailList
+          columns={2}
+          items={[
+            {
+              label: "Status",
+              value: (
+                <StatusBadge
+                  status={resolveStatus(
+                    KYC_STATUS,
+                    level2.identityMatched ? level2.status : "NOT_STARTED",
+                  )}
+                />
+              ),
+            },
+            { label: "NIN", value: level2.ninLast4 ? `•••••••${level2.ninLast4}` : null },
+            {
+              label: "BVN ↔ NIN",
+              value: level2.identityMatched
+                ? "Identity details matched"
+                : "Linked verification required",
+            },
+            { label: "Verified", value: <DateTime value={level2.ninVerifiedAt} /> },
+          ]}
+        />
       </DetailSection>
-
       <DetailSection
         title={KYC_LEVEL_INFO[3].title}
         description={KYC_LEVEL_INFO[3].description}
         actions={actions(3, level3.status)}
       >
-        <div className="grid gap-4">
-          <DetailList
-            columns={2}
-            items={[
-              {
-                label: "Status",
-                value: <StatusBadge status={resolveStatus(KYC_STATUS, level3.status)} />,
-              },
-              { label: "Verified", value: <DateTime value={level3.verifiedAt} /> },
-              { label: "Rejection reason", value: level3.rejectionReason, hideWhenEmpty: true },
-              {
-                label: "ID type",
-                value: level3.governmentIdType ? humanizeEnum(level3.governmentIdType) : null,
-              },
-              {
-                label: "ID number",
-                value: level3.governmentIdNumberLast4
-                  ? `•••••${level3.governmentIdNumberLast4}`
-                  : null,
-              },
-              { label: "ID expiry", value: level3.expiryDate },
-              { label: "Name on document", value: level3.governmentIdVerifiedName },
-              {
-                label: "Document check",
-                value: level3.governmentIdDocumentStatus
-                  ? humanizeEnum(level3.governmentIdDocumentStatus)
-                  : null,
-              },
-              {
-                label: "Liveness",
-                value: level3.submitted
-                  ? level3.livenessCheckPassed
-                    ? "Passed"
-                    : "Not passed"
-                  : null,
-              },
-              {
-                label: "Face match score",
-                value:
-                  level3.faceMatchScore == null ? null : (
-                    <span className="tabular-nums">{level3.faceMatchScore}</span>
-                  ),
-                hint: "Similarity score from the verification provider, as reported.",
-              },
-            ]}
-          />
-          {level3.submitted && (
-            <div className="flex flex-wrap gap-4">
-              <KycDocument location={level3.frontUrl} label="ID front" />
-              <KycDocument location={level3.backUrl} label="ID back" />
-            </div>
+        {level3.status === "PENDING" && !level3.canApprove && (
+          <Alert tone="warning" className="mb-3">
+            <AlertDescription>
+              Approval requires linked BVN/NIN checks, a server-verified live capture matched to
+              NIN, and a proof-of-address document.
+            </AlertDescription>
+          </Alert>
+        )}
+        <DetailList
+          columns={2}
+          items={[
+            {
+              label: "Status",
+              value: <StatusBadge status={resolveStatus(KYC_STATUS, level3.status)} />,
+            },
+            { label: "Verified", value: <DateTime value={level3.verifiedAt} /> },
+            {
+              label: "Live identity check",
+              value:
+                level3.identityReference === "VERIFIED_NIN" && level3.livenessCheckPassed
+                  ? "Passed against verified NIN"
+                  : "Not verified",
+            },
+            { label: "Face match score", value: level3.faceMatchScore },
+            { label: "Liveness score", value: level3.livenessScore },
+            { label: "Provider", value: level3.livenessProvider },
+            {
+              label: "Biometric check time",
+              value: <DateTime value={level3.livenessVerifiedAt} />,
+            },
+            {
+              label: "Document type",
+              value: level3.proofOfAddressType ? humanizeEnum(level3.proofOfAddressType) : null,
+            },
+            { label: "Address", value: level3.residentialAddress },
+            { label: "Rejection reason", value: level3.rejectionReason, hideWhenEmpty: true },
+          ]}
+        />
+        <div className="mt-4 flex flex-wrap gap-4">
+          <KycDocument location={level3.documentUrl} label="Proof of address" />
+          {level2.verifiedPhotoUrl && (
+            <KycDocument
+              location={
+                /^(https?:|data:|private[/:])/.test(level2.verifiedPhotoUrl)
+                  ? level2.verifiedPhotoUrl
+                  : `data:image/jpeg;base64,${level2.verifiedPhotoUrl}`
+              }
+              label="Verified NIN registry photograph"
+            />
           )}
+          <KycDocument location={level3.livenessUrl} label="Provider live capture" />
         </div>
       </DetailSection>
 
