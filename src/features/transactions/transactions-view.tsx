@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeftRightIcon,
   ExternalLinkIcon,
@@ -10,11 +10,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { ColumnCustomizer } from "@/components/data-table/column-customizer";
 import { DataTable } from "@/components/data-table/data-table";
 import { Pagination } from "@/components/data-table/pagination";
+import type { DataColumn } from "@/components/data-table/types";
 import { useTablePreferences } from "@/components/data-table/use-table-preferences";
 import { useTableUrlState } from "@/components/data-table/use-table-url-state";
 import { ExportDialog, type ExportSource } from "@/components/export/export-dialog";
@@ -24,6 +26,14 @@ import { SearchInput } from "@/components/filters/search-input";
 import { SelectFilter } from "@/components/filters/select-filter";
 import { Freshness } from "@/components/states/freshness";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetBody,
@@ -33,7 +43,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useHasPermission } from "@/features/auth/admin-context";
+import { useHasPermission, useIsSuperAdmin } from "@/features/auth/admin-context";
+import { adminApi } from "@/lib/api/admin-client";
+import { adminPaths } from "@/lib/api/admin-paths";
 
 import {
   CURRENCY_TYPES,
@@ -54,10 +66,13 @@ import { FLAG_SEVERITY_LABEL, TRANSACTION_STATUS, TRANSACTION_TYPE } from "./lab
 import { TransactionDetails } from "./transaction-details";
 
 const DEFAULT_SORT = { key: "createdAt", direction: "desc" } as const;
-
-/** `GET /transactions/admin/all` caps `limit` at 200. */
+/** GET /transactions/admin/all supports a maximum limit of 200. */
 const EXPORT_PAGE_SIZE = 200;
 const EXPORT_MAX_ROWS = 10_000;
+
+type ResolveAction = "retry" | "resolve" | "refund";
+
+type AssetType = "FIAT" | "CRYPTO";
 
 const filterParsers = {
   status: parseAsStringLiteral(TRANSACTION_STATUSES),
@@ -72,23 +87,98 @@ const filterParsers = {
 };
 
 interface TransactionsViewProps {
-  /** Fixes the list to one customer (user detail page); hides the customer filter. */
+  /** Fixes the list to one customer and hides the customer filter. */
   userId?: string;
-  /** Distinct table id so preferences for embedded tables are stored separately. */
+  /** Uses a separate preference namespace for embedded tables. */
   tableId?: string;
 }
 
 export function TransactionsView({ userId, tableId = "transactions" }: TransactionsViewProps) {
   const canViewUsers = useHasPermission("users.view");
-  // Raising and clearing a flag both need `compliance.review`, server-side.
   const canFlag = useHasPermission("compliance.review");
+  const queryClient = useQueryClient();
+
+  const canSuperAdmin = useIsSuperAdmin();
+  const canMutateWallet = canSuperAdmin && Boolean(userId);
+
+  const [openDebit, setOpenDebit] = useState(false);
+  const [openCredit, setOpenCredit] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<AssetType>("FIAT");
+  const [amount, setAmount] = useState<string>("");
+
+  // Debit mutation
+  const debitMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      amount,
+      asset,
+    }: {
+      userId: string;
+      amount: string;
+      asset: AssetType;
+    }) => {
+      return adminApi.post(`${adminPaths.users}/${encodeURIComponent(userId)}/debit`, {
+        amount: Number(amount),
+        asset,
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Wallet debited successfully");
+      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      setOpenDebit(false);
+      setAmount("");
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "Failed to debit wallet";
+      toast.error(message);
+    },
+  });
+
+  // Credit mutation
+  const creditMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      amount,
+      asset,
+    }: {
+      userId: string;
+      amount: string;
+      asset: AssetType;
+    }) => {
+      return adminApi.post(`${adminPaths.users}/${encodeURIComponent(userId)}/credit`, {
+        amount: Number(amount),
+        asset,
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Wallet credited successfully");
+      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      setOpenCredit(false);
+      setAmount("");
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "Failed to credit wallet";
+      toast.error(message);
+    },
+  });
+
   const table = useTableUrlState({ sortKeys: TRANSACTION_SORT_KEYS, defaultSort: DEFAULT_SORT });
   const [filters, setFilters] = useQueryStates(filterParsers, { clearOnDefault: true });
-  const columns = useMemo(() => transactionColumns({ canViewUsers }), [canViewUsers]);
-  const preferences = useTablePreferences(tableId, columns);
+
   const [selected, setSelected] = useState<Map<string, Transaction>>(new Map());
   const [openTx, setOpenTx] = useState<Transaction | null>(null);
   const [flagDialog, setFlagDialog] = useState<"raise" | "clear" | null>(null);
+  const [resolveTx, setResolveTx] = useState<Transaction | null>(null);
+  const [resolveOpen, setResolveOpen] = useState(false);
+
+  const openResolveDialog = useCallback((tx: Transaction) => {
+    setResolveTx(tx);
+    setResolveOpen(true);
+  }, []);
+  const closeResolveDialog = useCallback(() => {
+    setResolveOpen(false);
+    setResolveTx(null);
+  }, []);
 
   const range = resolveDateRange({ range: filters.range, from: filters.from, to: filters.to });
   const query: Omit<TransactionQuery, "page" | "pageSize"> = {
@@ -105,8 +195,9 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
     sortOrder: table.sort?.direction ?? "desc",
   };
 
-  // Presets such as "Today" resolve against now; key on the preset, not the moving instant.
-  const rangeKey = filters.range === "custom" ? `${filters.from}..${filters.to}` : filters.range;
+  const rangeKey =
+    filters.range === "custom" ? `${filters.from ?? ""}..${filters.to ?? ""}` : filters.range;
+
   const result = useQuery({
     queryKey: [
       "transactions",
@@ -126,11 +217,77 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
 
   const rows = result.data?.rows ?? [];
   const total = result.data?.total ?? 0;
-  // The open sheet reads from the refreshed list, not from the row that was
-  // clicked. Without this, flagging a transaction leaves the sheet showing the
-  // snapshot taken before the flag — so the banner never appears and the footer
-  // still offers to flag it again.
   const openRow = openTx ? (rows.find((row) => row.id === openTx.id) ?? openTx) : null;
+
+  const flagSummary = useQuery({
+    queryKey: ["transaction-flags"],
+    queryFn: ({ signal }) => fetchFlagSummary(signal),
+    enabled: canFlag,
+    refetchInterval: 120_000,
+  });
+
+  const openFlags = flagSummary.data?.total ?? 0;
+
+  const providerStatusQuery = useQuery({
+    queryKey: ["provider-status", resolveTx?.id],
+    queryFn: () => {
+      if (!resolveTx?.id) return Promise.resolve(null);
+      return adminApi.get(
+        `${adminPaths.transactions}/${encodeURIComponent(resolveTx.id)}/provider-status`,
+      );
+    },
+    enabled: resolveOpen && Boolean(resolveTx?.id),
+    retry: 1,
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: ResolveAction }) => {
+      return adminApi.post(`${adminPaths.transactions}/${encodeURIComponent(id)}/${action}`);
+    },
+    onSuccess: async () => {
+      toast.success("Transaction action completed successfully.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+        queryClient.invalidateQueries({ queryKey: ["transaction-flags"] }),
+        queryClient.invalidateQueries({ queryKey: ["provider-status", resolveTx?.id] }),
+      ]);
+      closeResolveDialog();
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : "Unable to process the transaction action.";
+      toast.error(message);
+    },
+  });
+
+  const columns = useMemo((): DataColumn<Transaction>[] => {
+    const baseColumns = transactionColumns({ canViewUsers });
+    const actionColumn: DataColumn<Transaction> = {
+      id: "actions",
+      header: "",
+      cell: (tx: Transaction) => {
+        if (tx.status !== "FAILED") return null;
+        return (
+          <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                openResolveDialog(tx);
+              }}
+            >
+              Resolve
+            </Button>
+          </div>
+        );
+      },
+      required: true,
+    };
+    return [...baseColumns, actionColumn];
+  }, [canViewUsers, openResolveDialog]);
+
+  const preferences = useTablePreferences(tableId, columns);
+
   const activeFilterCount = [
     filters.status,
     filters.type,
@@ -142,37 +299,7 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
     table.search,
   ].filter(Boolean).length;
 
-  // Real counts across the whole ledger, not the page. Only fetched for admins
-  // who can act on a flag — for everyone else it is a number they cannot use.
-  const flagSummary = useQuery({
-    queryKey: ["transaction-flags"],
-    queryFn: ({ signal }) => fetchFlagSummary(signal),
-    enabled: canFlag,
-    refetchInterval: 120_000,
-  });
-  const openFlags = flagSummary.data?.total ?? 0;
-
-  const exportSource: ExportSource<Transaction> = {
-    pageRows: rows,
-    selectedRows: [...selected.values()],
-    totalMatching: total,
-    maxRows: EXPORT_MAX_ROWS,
-    loadAll: async (signal, onProgress) => {
-      const all: Transaction[] = [];
-      for (let page = 1; all.length < total; page++) {
-        const chunk = await fetchTransactions(
-          { ...query, page, pageSize: EXPORT_PAGE_SIZE },
-          signal,
-        );
-        all.push(...chunk.rows);
-        onProgress(all.length);
-        if (chunk.rows.length < EXPORT_PAGE_SIZE) break;
-      }
-      return all;
-    },
-  };
-
-  function clearFilters() {
+  const clearFilters = useCallback(() => {
     void setFilters({
       status: null,
       type: null,
@@ -185,10 +312,37 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
       flagSeverity: null,
     });
     table.setSearch("");
-  }
+  }, [setFilters, table]);
+
+  const exportSource: ExportSource<Transaction> = {
+    pageRows: rows,
+    selectedRows: Array.from(selected.values()),
+    totalMatching: total,
+    maxRows: EXPORT_MAX_ROWS,
+    loadAll: async (signal, onProgress) => {
+      const all: Transaction[] = [];
+      const targetRows = Math.min(total, EXPORT_MAX_ROWS);
+      let page = 1;
+      while (all.length < targetRows) {
+        if (signal.aborted) throw new DOMException("Export was cancelled.", "AbortError");
+        const remaining = targetRows - all.length;
+        const chunk = await fetchTransactions(
+          { ...query, page, pageSize: Math.min(EXPORT_PAGE_SIZE, remaining) },
+          signal,
+        );
+        if (chunk.rows.length === 0) break;
+        all.push(...chunk.rows);
+        onProgress(all.length);
+        if (chunk.rows.length < Math.min(EXPORT_PAGE_SIZE, remaining)) break;
+        page += 1;
+      }
+      return all;
+    },
+  };
 
   return (
     <div className="grid gap-3">
+      {/* Filters and toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           value={table.search}
@@ -240,9 +394,6 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
                 { value: "CLEARED", label: "Already cleared" },
               ]}
               onChange={(flagged) =>
-                // Dropping the flag view has to drop the severity with it, or a
-                // severity filter stays in the URL narrowing an unflagged list to
-                // nothing with no visible cause.
                 void setFilters(flagged ? { flagged } : { flagged: null, flagSeverity: null })
               }
             />
@@ -261,10 +412,10 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         )}
         {activeFilterCount > 0 && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <FilterXIcon aria-hidden />
-            Clear filters
+            <FilterXIcon aria-hidden /> Clear filters
           </Button>
         )}
+        {/* Right-side toolbar */}
         <div className="ml-auto flex items-center gap-2">
           <Freshness
             updatedAt={result.dataUpdatedAt}
@@ -278,9 +429,32 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
             visibleColumnIds={preferences.visibleColumns.map((c) => c.id)}
             source={exportSource}
           />
+          {canMutateWallet && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOpenDebit(true);
+                }}
+              >
+                Debit Wallet
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOpenCredit(true);
+                }}
+              >
+                Credit Wallet
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* Selected rows information */}
       {selected.size > 0 && (
         <div
           className="flex items-center gap-3 rounded-md border bg-accent/40 px-3 py-1.5 text-sm"
@@ -303,6 +477,7 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         </div>
       )}
 
+      {/* Transactions table */}
       <DataTable
         label="Transactions"
         subject="transactions"
@@ -352,6 +527,7 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         }
       />
 
+      {/* Pagination */}
       <Pagination
         page={table.page}
         pageSize={table.pageSize}
@@ -360,6 +536,7 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         onPageSizeChange={table.setPageSize}
       />
 
+      {/* Transaction details sheet */}
       <Sheet
         open={openRow !== null}
         onOpenChange={(open) => {
@@ -391,8 +568,8 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
                         setFlagDialog("clear");
                       }}
                     >
-                      <FlagOffIcon aria-hidden />
-                      Clear flag
+                      {" "}
+                      <FlagOffIcon aria-hidden /> Clear flag{" "}
                     </Button>
                   ) : (
                     <Button
@@ -402,17 +579,19 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
                         setFlagDialog("raise");
                       }}
                     >
-                      <FlagIcon aria-hidden />
-                      Flag for review
+                      {" "}
+                      <FlagIcon aria-hidden /> Flag for review{" "}
                     </Button>
                   ))}
                 {openRow.reference && (
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={`/transactions/${encodeURIComponent(openRow.reference)}`}>
-                      <ExternalLinkIcon aria-hidden />
-                      Open full page
-                    </Link>
-                  </Button>
+                  <Link
+                    href={`/transactions/${encodeURIComponent(openRow.reference)}`}
+                    className="inline-block"
+                  >
+                    <Button variant="outline" size="sm">
+                      <ExternalLinkIcon aria-hidden /> Open full page
+                    </Button>
+                  </Link>
                 )}
               </SheetFooter>
             )}
@@ -420,11 +599,229 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         )}
       </Sheet>
 
-      {/*
-        Rendered outside the Sheet so the dialog is not unmounted by the sheet
-        closing beneath it, and keyed on the transaction so switching rows while
-        a dialog was open cannot carry the previous row's draft into it.
-      */}
+      {/* Resolve failed transaction sheet */}
+      <Sheet
+        open={resolveOpen}
+        onOpenChange={(open) => {
+          if (!open && !resolveMutation.isPending) closeResolveDialog();
+        }}
+      >
+        {resolveTx && (
+          <SheetContent className="sm:max-w-xl">
+            <SheetHeader>
+              <SheetTitle>Resolve Transaction</SheetTitle>
+              <SheetDescription>
+                Resolve failed transaction <span className="font-mono">{resolveTx.id}</span>
+              </SheetDescription>
+            </SheetHeader>
+            <SheetBody>
+              <div className="grid gap-3">
+                <div className="rounded-md border p-3">
+                  <p className="mb-2 text-sm font-medium">Provider status</p>
+                  {providerStatusQuery.isLoading ? (
+                    <p className="text-sm text-muted-foreground">Checking provider status...</p>
+                  ) : providerStatusQuery.isError ? (
+                    <div className="grid gap-2">
+                      <p className="text-sm text-destructive">
+                        Unable to retrieve provider status.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => void providerStatusQuery.refetch()}
+                      >
+                        Retry status check
+                      </Button>
+                    </div>
+                  ) : providerStatusQuery.data ? (
+                    <pre className="max-h-64 overflow-auto text-xs break-words whitespace-pre-wrap">
+                      {JSON.stringify(providerStatusQuery.data, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No provider status available.</p>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Only perform an action after verifying the transaction and its provider-side
+                  status.
+                </p>
+              </div>
+            </SheetBody>
+            <SheetFooter className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolveMutation.isPending}
+                onClick={closeResolveDialog}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolveMutation.isPending || providerStatusQuery.isLoading}
+                loading={resolveMutation.isPending && resolveMutation.variables.action === "retry"}
+                onClick={() => {
+                  resolveMutation.mutate({ id: resolveTx.id, action: "retry" });
+                }}
+              >
+                Retry
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolveMutation.isPending}
+                loading={
+                  resolveMutation.isPending && resolveMutation.variables.action === "resolve"
+                }
+                onClick={() => {
+                  resolveMutation.mutate({ id: resolveTx.id, action: "resolve" });
+                }}
+              >
+                Mark Resolved
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={resolveMutation.isPending}
+                loading={resolveMutation.isPending && resolveMutation.variables.action === "refund"}
+                onClick={() => {
+                  resolveMutation.mutate({ id: resolveTx.id, action: "refund" });
+                }}
+              >
+                Refund
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        )}
+      </Sheet>
+
+      {/* Debit wallet sheet */}
+      <Sheet
+        open={openDebit}
+        onOpenChange={(next) => {
+          setOpenDebit(next);
+          if (!next) setAmount("");
+        }}
+      >
+        <SheetContent className="sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Debit Wallet</SheetTitle>
+            <SheetDescription>Select asset type and amount to debit.</SheetDescription>
+          </SheetHeader>
+          <SheetBody className="flex flex-col gap-4">
+            <Select
+              value={selectedAsset}
+              onValueChange={(value) => {
+                setSelectedAsset(value as AssetType);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select asset" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FIAT">FIAT</SelectItem>
+                <SelectItem value="CRYPTO">CRYPTO</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              type="number"
+              min="0"
+              placeholder="Amount"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+              }}
+            />
+          </SheetBody>
+          <SheetFooter className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenDebit(false);
+                setAmount("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!amount || isNaN(Number(amount)) || !userId}
+              loading={debitMutation.isPending}
+              onClick={() => {
+                if (!userId) return;
+                debitMutation.mutate({ userId, amount, asset: selectedAsset });
+              }}
+            >
+              Debit
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Credit wallet sheet */}
+      <Sheet
+        open={openCredit}
+        onOpenChange={(next) => {
+          setOpenCredit(next);
+          if (!next) setAmount("");
+        }}
+      >
+        <SheetContent className="sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Credit Wallet</SheetTitle>
+            <SheetDescription>Select asset type and amount to credit.</SheetDescription>
+          </SheetHeader>
+          <SheetBody className="flex flex-col gap-4">
+            <Select
+              value={selectedAsset}
+              onValueChange={(value) => {
+                setSelectedAsset(value as AssetType);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select asset" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FIAT">FIAT</SelectItem>
+                <SelectItem value="CRYPTO">CRYPTO</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              type="number"
+              min="0"
+              placeholder="Amount"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+              }}
+            />
+          </SheetBody>
+          <SheetFooter className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenCredit(false);
+                setAmount("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!amount || isNaN(Number(amount)) || !userId}
+              loading={creditMutation.isPending}
+              onClick={() => {
+                if (!userId) return;
+                creditMutation.mutate({ userId, amount, asset: selectedAsset });
+              }}
+            >
+              Credit
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Flag transaction dialogs */}
       {openRow && canFlag && (
         <>
           <FlagTransactionDialog

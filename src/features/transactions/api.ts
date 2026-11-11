@@ -291,10 +291,24 @@ export function flagTransaction(
 }
 
 /** Close an open flag. The resolution is the record that it was actually checked. */
+// Close an open flag. The resolution is the record that it was actually checked.
 export function clearTransactionFlag(id: string, resolution: string) {
   return adminApi.post(`${adminPaths.transactions}/${encodeURIComponent(id)}/flag/clear`, {
     resolution,
   });
+}
+
+// Reverse a transaction (void if unsettled, refund if settled)
+export function reverseTransaction(id: string) {
+  return adminApi.post(`${adminPaths.transactions}/${encodeURIComponent(id)}/reverse`, {});
+}
+
+/**
+ * Update a transaction's status (admin‑only operation).
+ * Accepted statuses are the values from `TRANSACTION_STATUSES`.
+ */
+export function setTransactionStatus(id: string, status: TransactionStatus) {
+  return adminApi.patch(`${adminPaths.transactions}/${encodeURIComponent(id)}/status`, { status });
 }
 
 /**

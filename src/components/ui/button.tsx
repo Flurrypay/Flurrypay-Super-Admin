@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { Slot } from "radix-ui";
 import type { ComponentProps } from "react";
 
@@ -33,9 +34,21 @@ const buttonVariants = cva(
 interface ButtonProps extends ComponentProps<"button">, VariantProps<typeof buttonVariants> {
   /** Renders the single child element with button styling, e.g. a `<Link>`. */
   asChild?: boolean;
+  /** Shows a spinner and disables the button while an action is in flight. */
+  loading?: boolean;
 }
 
-function Button({ className, variant, size, asChild = false, type, ...props }: ButtonProps) {
+function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  type,
+  loading = false,
+  disabled,
+  children,
+  ...props
+}: ButtonProps) {
   const Comp = asChild ? Slot.Root : "button";
   return (
     <Comp
@@ -43,8 +56,19 @@ function Button({ className, variant, size, asChild = false, type, ...props }: B
       // Default to "button" so buttons never submit forms by accident.
       type={asChild ? type : (type ?? "button")}
       className={cn(buttonVariants({ variant, size }), className)}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
-    />
+    >
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && <Loader2 className="animate-spin" aria-hidden />}
+          {children}
+        </>
+      )}
+    </Comp>
   );
 }
 
