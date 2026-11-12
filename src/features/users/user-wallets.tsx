@@ -2,6 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  ChevronDownIcon,
+  CoinsIcon,
   MinusCircleIcon,
   PlusCircleIcon,
   ScaleIcon,
@@ -20,45 +22,69 @@ import { Freshness } from "@/components/states/freshness";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdmin } from "@/features/auth/admin-context";
 import { isSuperAdmin } from "@/features/auth/permissions";
 
-import { fetchUserWalletLedger, fetchUserWallets, type UserDetail } from "./api";
-import { type AdjustmentDirection, WalletAdjustmentDialog } from "./wallet-adjustment-dialog";
+import { fetchUserWalletLedger, fetchUserWallets, type UserDetail, type UserWallet } from "./api";
+import {
+  type AdjustmentAssetType,
+  type AdjustmentDirection,
+  WalletAdjustmentDialog,
+} from "./wallet-adjustment-dialog";
+
+interface AdjustmentState {
+  direction: AdjustmentDirection;
+  assetType: AdjustmentAssetType;
+  coinTicker?: string;
+}
 
 export function UserWallets({ user }: { user: UserDetail }) {
   const admin = useAdmin();
-  // The API gates both adjustment endpoints on super admin and refuses to make
+  // The API gates adjustment endpoints on super admin and refuses to make
   // the permission grantable to invited staff, so there is no permission to
   // check — only the role.
   const canAdjust = isSuperAdmin(admin);
-  const [adjustment, setAdjustment] = useState<AdjustmentDirection | null>(null);
+  const [adjustment, setAdjustment] = useState<AdjustmentState | null>(null);
+
+  const walletsQuery = useQuery({
+    queryKey: ["user-wallets", user.id],
+    queryFn: ({ signal }) => fetchUserWallets(user.id, signal),
+  });
+
+  const cryptoWallets = walletsQuery.data ?? [];
 
   return (
     <div className="grid gap-4">
-      <NairaWallet user={user} canAdjust={canAdjust} onAdjust={setAdjustment} />
-      <CryptoWallets userId={user.id} />
+      <NairaWallet
+        user={user}
+        cryptoWallets={cryptoWallets}
+        canAdjust={canAdjust}
+        onAdjust={setAdjustment}
+      />
+      <CryptoWallets walletsQuery={walletsQuery} canAdjust={canAdjust} onAdjust={setAdjustment} />
 
-      {canAdjust && (
-        <>
-          <WalletAdjustmentDialog
-            user={user}
-            direction="credit"
-            open={adjustment === "credit"}
-            onOpenChange={(next) => {
-              if (!next) setAdjustment(null);
-            }}
-          />
-          <WalletAdjustmentDialog
-            user={user}
-            direction="debit"
-            open={adjustment === "debit"}
-            onOpenChange={(next) => {
-              if (!next) setAdjustment(null);
-            }}
-          />
-        </>
+      {canAdjust && adjustment !== null && (
+        <WalletAdjustmentDialog
+          key={`${adjustment.direction}-${adjustment.assetType}-${adjustment.coinTicker ?? ""}`}
+          user={user}
+          direction={adjustment.direction}
+          initialAssetType={adjustment.assetType}
+          initialCoinTicker={adjustment.coinTicker}
+          wallets={cryptoWallets}
+          open
+          onOpenChange={(next) => {
+            if (!next) setAdjustment(null);
+          }}
+        />
       )}
     </div>
   );
@@ -75,17 +101,33 @@ export function UserWallets({ user }: { user: UserDetail }) {
  */
 function NairaWallet({
   user,
+  cryptoWallets,
   canAdjust,
   onAdjust,
 }: {
   user: UserDetail;
+  cryptoWallets: UserWallet[];
   canAdjust: boolean;
-  onAdjust: (direction: AdjustmentDirection) => void;
+  onAdjust: (state: AdjustmentState) => void;
 }) {
   const ledger = useQuery({
     queryKey: ["user-wallet-ledger", user.id],
     queryFn: ({ signal }) => fetchUserWalletLedger(user.id, 25, signal),
   });
+
+  // Fallback list of crypto wallets from user.coinBalances while full wallets query loads
+  const quickCryptoList =
+    cryptoWallets.length > 0
+      ? cryptoWallets.map((w) => ({
+          ticker: w.coinTicker,
+          name: w.coinName,
+          balance: w.coinBalance.cryptoBalance,
+        }))
+      : user.coinBalances.map((c) => ({
+          ticker: c.ticker,
+          name: c.name,
+          balance: c.cryptoBalance,
+        }));
 
   return (
     <DetailSection
@@ -94,26 +136,126 @@ function NairaWallet({
       actions={
         canAdjust ? (
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                onAdjust("credit");
-              }}
-            >
-              <PlusCircleIcon aria-hidden />
-              Credit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                onAdjust("debit");
-              }}
-            >
-              <MinusCircleIcon aria-hidden />
-              Debit
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <PlusCircleIcon aria-hidden />
+                  Credit
+                  <ChevronDownIcon aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Fiat wallet</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    onAdjust({ direction: "credit", assetType: "fiat" });
+                  }}
+                >
+                  <WalletIcon aria-hidden />
+                  <span className="flex flex-1 items-center justify-between gap-2">
+                    <span>Credit Fiat (NGN)</span>
+                    <Amount
+                      value={user.walletBalance}
+                      currency="NGN"
+                      className="text-xs text-muted-foreground"
+                    />
+                  </span>
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Crypto wallets</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    onAdjust({ direction: "credit", assetType: "crypto" });
+                  }}
+                >
+                  <CoinsIcon aria-hidden />
+                  <span>Credit Crypto Wallet…</span>
+                </DropdownMenuItem>
+                {quickCryptoList.map((coin) => (
+                  <DropdownMenuItem
+                    key={`credit-${coin.ticker}`}
+                    onSelect={() => {
+                      onAdjust({
+                        direction: "credit",
+                        assetType: "crypto",
+                        coinTicker: coin.ticker,
+                      });
+                    }}
+                  >
+                    <PlusCircleIcon aria-hidden />
+                    <span className="flex flex-1 items-center justify-between gap-2">
+                      <span>Credit {coin.ticker}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {coin.balance} {coin.ticker}
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MinusCircleIcon aria-hidden />
+                  Debit
+                  <ChevronDownIcon aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Fiat wallet</DropdownMenuLabel>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => {
+                    onAdjust({ direction: "debit", assetType: "fiat" });
+                  }}
+                >
+                  <WalletIcon aria-hidden />
+                  <span className="flex flex-1 items-center justify-between gap-2">
+                    <span>Debit Fiat (NGN)</span>
+                    <Amount
+                      value={user.walletBalance}
+                      currency="NGN"
+                      className="text-xs opacity-80"
+                    />
+                  </span>
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Crypto wallets</DropdownMenuLabel>
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => {
+                    onAdjust({ direction: "debit", assetType: "crypto" });
+                  }}
+                >
+                  <CoinsIcon aria-hidden />
+                  <span>Debit Crypto Wallet…</span>
+                </DropdownMenuItem>
+                {quickCryptoList.map((coin) => (
+                  <DropdownMenuItem
+                    key={`debit-${coin.ticker}`}
+                    variant="destructive"
+                    onSelect={() => {
+                      onAdjust({
+                        direction: "debit",
+                        assetType: "crypto",
+                        coinTicker: coin.ticker,
+                      });
+                    }}
+                  >
+                    <MinusCircleIcon aria-hidden />
+                    <span className="flex flex-1 items-center justify-between gap-2">
+                      <span>Debit {coin.ticker}</span>
+                      <span className="font-mono text-xs opacity-80">
+                        {coin.balance} {coin.ticker}
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         ) : undefined
       }
@@ -226,14 +368,6 @@ function NairaWallet({
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-muted-foreground">
-                        {/*
-                          Shown beside the closing balance, not instead of it.
-                          A closing balance alone says what the money is; the
-                          pair says what the movement did — and a gap between
-                          one row's "after" and the next row's "before" is a
-                          balance change that bypassed this ledger, which is
-                          precisely what it exists to surface.
-                        */}
                         <Amount
                           value={entry.balanceBefore}
                           currency="NGN"
@@ -241,11 +375,6 @@ function NairaWallet({
                         />
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {/*
-                          The sign comes from `direction`; `amountNaira` is always
-                          positive. Spelled out rather than left to colour, so the
-                          direction survives a screen reader and a printout.
-                        */}
                         <span
                           className={
                             entry.direction === "CREDIT" ? "text-success" : "text-foreground"
@@ -273,18 +402,25 @@ function NairaWallet({
   );
 }
 
-function CryptoWallets({ userId }: { userId: string }) {
-  const result = useQuery({
-    queryKey: ["user-wallets", userId],
-    queryFn: ({ signal }) => fetchUserWallets(userId, signal),
-  });
-
-  if (result.isPending) return <Skeleton className="h-48" />;
-  if (result.isError)
+function CryptoWallets({
+  walletsQuery,
+  canAdjust,
+  onAdjust,
+}: {
+  walletsQuery: ReturnType<typeof useQuery<UserWallet[]>>;
+  canAdjust: boolean;
+  onAdjust: (state: AdjustmentState) => void;
+}) {
+  if (walletsQuery.isPending) return <Skeleton className="h-48" />;
+  if (walletsQuery.isError)
     return (
-      <ErrorState error={result.error} subject="wallets" onRetry={() => void result.refetch()} />
+      <ErrorState
+        error={walletsQuery.error}
+        subject="wallets"
+        onRetry={() => void walletsQuery.refetch()}
+      />
     );
-  if (result.data.length === 0) {
+  if (walletsQuery.data.length === 0) {
     return (
       <EmptyState
         icon={WalletIcon}
@@ -302,9 +438,9 @@ function CryptoWallets({ userId }: { userId: string }) {
           current rate.
         </p>
         <Freshness
-          updatedAt={result.dataUpdatedAt}
-          isFetching={result.isFetching}
-          onRefresh={() => void result.refetch()}
+          updatedAt={walletsQuery.dataUpdatedAt}
+          isFetching={walletsQuery.isFetching}
+          onRefresh={() => void walletsQuery.refetch()}
         />
       </div>
       <div className="overflow-x-auto rounded-md border bg-card">
@@ -323,10 +459,15 @@ function CryptoWallets({ userId }: { userId: string }) {
               <th scope="col" className="px-3 py-2 text-left font-medium">
                 Deposit addresses
               </th>
+              {canAdjust && (
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {result.data.map((wallet) => (
+            {walletsQuery.data.map((wallet) => (
               <tr key={wallet.coinTicker} className="border-t align-top">
                 <td className="px-3 py-2">
                   <span className="font-medium">{wallet.coinTicker}</span>
@@ -364,6 +505,40 @@ function CryptoWallets({ userId }: { userId: string }) {
                       ))}
                   </ul>
                 </td>
+                {canAdjust && (
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => {
+                          onAdjust({
+                            direction: "credit",
+                            assetType: "crypto",
+                            coinTicker: wallet.coinTicker,
+                          });
+                        }}
+                      >
+                        <PlusCircleIcon aria-hidden />
+                        Credit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => {
+                          onAdjust({
+                            direction: "debit",
+                            assetType: "crypto",
+                            coinTicker: wallet.coinTicker,
+                          });
+                        }}
+                      >
+                        <MinusCircleIcon aria-hidden />
+                        Debit
+                      </Button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

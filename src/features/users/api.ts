@@ -370,6 +370,52 @@ export function debitUserWallet(userId: string, input: WalletAdjustment) {
   });
 }
 
+export interface CryptoWalletAdjustment extends WalletAdjustment {
+  coinTicker: string;
+}
+
+const cryptoAdjustmentResultSchema = z
+  .object({
+    message: z.string().catch(""),
+    data: z
+      .object({
+        coinTicker: z.string().catch(""),
+        amountCredited: z.unknown(),
+        amountDebited: z.unknown(),
+        cryptoBalanceBefore: z.unknown(),
+        cryptoBalanceAfter: z.unknown(),
+        reference: z.string().catch(""),
+      })
+      .optional(),
+  })
+  .transform((v) => ({
+    message: v.message,
+    coinTicker: v.data?.coinTicker ?? "",
+    reference: v.data?.reference ?? null,
+    balanceBefore: toDecimalString(v.data?.cryptoBalanceBefore),
+    balanceAfter: toDecimalString(v.data?.cryptoBalanceAfter),
+  }));
+export type CryptoWalletAdjustmentResult = z.output<typeof cryptoAdjustmentResultSchema>;
+
+function cryptoAdjustmentBody(userId: string, input: CryptoWalletAdjustment) {
+  return {
+    ...adjustmentBody(userId, input),
+    coinTicker: input.coinTicker.trim().toUpperCase(),
+  };
+}
+
+export function creditUserCryptoWallet(userId: string, input: CryptoWalletAdjustment) {
+  return adminApi.post(`${core}/credit-user-crypto`, cryptoAdjustmentBody(userId, input), {
+    schema: cryptoAdjustmentResultSchema,
+  });
+}
+
+export function debitUserCryptoWallet(userId: string, input: CryptoWalletAdjustment) {
+  return adminApi.post(`${core}/debit-user-crypto`, cryptoAdjustmentBody(userId, input), {
+    schema: cryptoAdjustmentResultSchema,
+  });
+}
+
 /**
  * The customer's naira ledger: every movement, with the balance either side.
  *

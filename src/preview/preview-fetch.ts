@@ -605,50 +605,17 @@ route("GET", `${core}/get-user/:id`, (_r, [id]) => {
         accountName: fullName(u),
       },
     ],
-    coinBalances: [
-      { name: "Tether", ticker: "USDT", cryptoBalance: "412.550000", nairaBalance: "639452.50" },
-      { name: "Bitcoin", ticker: "BTC", cryptoBalance: "0.00231000", nairaBalance: "346500.00" },
-    ],
+    coinBalances: cryptoWalletsFor(u.id).map((w) => ({
+      name: w.coinName,
+      ticker: w.coinTicker,
+      cryptoBalance: w.coinBalance.cryptoBalance,
+      nairaBalance: w.coinBalance.nairaBalance,
+    })),
   });
 });
-route("GET", `${core}/user-wallet-addresses/:id`, () =>
+route("GET", `${core}/user-wallet-addresses/:id`, (_req, [id]) =>
   json({
-    wallets: [
-      {
-        coinName: "Tether",
-        coinTicker: "USDT",
-        coinBalance: {
-          cryptoBalance: "412.550000",
-          nairaBalance: "639452.50",
-          lastUpdated: new Date().toISOString(),
-        },
-        networks: [
-          {
-            id: "w1",
-            address: "TXq7preview9a3c1f0d2b8e4a6c5d7f9e1b3a5",
-            network: "tron",
-            withdrawsEnabled: true,
-          },
-        ],
-      },
-      {
-        coinName: "Bitcoin",
-        coinTicker: "BTC",
-        coinBalance: {
-          cryptoBalance: "0.00231000",
-          nairaBalance: "346500.00",
-          lastUpdated: new Date().toISOString(),
-        },
-        networks: [
-          {
-            id: "w2",
-            address: "bc1qpreview4k7x9m2n8p0q3r5s7t9v1w3x5y7z9a",
-            network: "bitcoin",
-            withdrawsEnabled: true,
-          },
-        ],
-      },
-    ],
+    wallets: cryptoWalletsFor(id ?? ""),
   }),
 );
 route("GET", `${core}/user-activity/:id`, (req) => {
@@ -677,6 +644,70 @@ route("GET", `${core}/user-activity/:id`, (req) => {
  * wallet that does not reconcile — which is the alarm state, not the normal one.
  */
 const previewLedger = new Map<string, Json[]>();
+
+interface PreviewCryptoWallet {
+  coinName: string;
+  coinTicker: string;
+  rateNgn: number;
+  coinBalance: {
+    cryptoBalance: string;
+    nairaBalance: string;
+    lastUpdated: string;
+  };
+  networks: Array<{
+    id: string;
+    address: string;
+    network: string;
+    withdrawsEnabled: boolean;
+  }>;
+}
+
+const previewCryptoWallets = new Map<string, PreviewCryptoWallet[]>();
+
+function cryptoWalletsFor(userId: string): PreviewCryptoWallet[] {
+  const existing = previewCryptoWallets.get(userId);
+  if (existing) return existing;
+  const seeded: PreviewCryptoWallet[] = [
+    {
+      coinName: "Tether",
+      coinTicker: "USDT",
+      rateNgn: 1550,
+      coinBalance: {
+        cryptoBalance: "412.550000",
+        nairaBalance: "639452.50",
+        lastUpdated: new Date().toISOString(),
+      },
+      networks: [
+        {
+          id: "w1",
+          address: "TXq7preview9a3c1f0d2b8e4a6c5d7f9e1b3a5",
+          network: "tron",
+          withdrawsEnabled: true,
+        },
+      ],
+    },
+    {
+      coinName: "Bitcoin",
+      coinTicker: "BTC",
+      rateNgn: 150_000_000,
+      coinBalance: {
+        cryptoBalance: "0.00231000",
+        nairaBalance: "346500.00",
+        lastUpdated: new Date().toISOString(),
+      },
+      networks: [
+        {
+          id: "w2",
+          address: "bc1qpreview4k7x9m2n8p0q3r5s7t9v1w3x5y7z9a",
+          network: "bitcoin",
+          withdrawsEnabled: true,
+        },
+      ],
+    },
+  ];
+  previewCryptoWallets.set(userId, seeded);
+  return seeded;
+}
 
 function walletLedgerFor(userId: string): Json[] {
   const existing = previewLedger.get(userId);
@@ -823,6 +854,114 @@ function adjustWallet(direction: "credit" | "debit", body: Json): Response {
 
 route("POST", `${core}/credit-user`, (req) => adjustWallet("credit", req.body));
 route("POST", `${core}/debit-user`, (req) => adjustWallet("debit", req.body));
+
+function adjustCryptoWallet(direction: "credit" | "debit", body: Json): Response {
+  const identifier = text(body.identifier).trim().toLowerCase();
+  const user = users.find(
+    (u) =>
+      u.id === text(body.identifier).trim() ||
+      u.email.toLowerCase() === identifier ||
+      u.userName.toLowerCase() === identifier,
+  );
+  if (!user) return notFound(`No user found for "${text(body.identifier)}".`);
+
+  const ticker = text(body.coinTicker).trim().toUpperCase();
+  if (!ticker) return json({ message: "Select a crypto asset." }, 400);
+
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return json({ message: "Amount must be a positive number." }, 400);
+  }
+
+  const wallets = cryptoWalletsFor(user.id);
+  let wallet = wallets.find((w) => w.coinTicker.toUpperCase() === ticker);
+  if (!wallet) {
+    if (direction === "debit") {
+      return json({ message: `User does not have a ${ticker} wallet.` }, 404);
+    }
+    const coinNames: Record<string, { name: string; rate: number; network: string }> = {
+      USDT: { name: "Tether", rate: 1550, network: "tron" },
+      BTC: { name: "Bitcoin", rate: 150_000_000, network: "bitcoin" },
+      ETH: { name: "Ethereum", rate: 5_200_000, network: "ethereum" },
+      SOL: { name: "Solana", rate: 280_000, network: "solana" },
+      USDC: { name: "USD Coin", rate: 1550, network: "ethereum" },
+      BNB: { name: "BNB", rate: 950_000, network: "bsc" },
+      TRX: { name: "TRON", rate: 380, network: "tron" },
+    };
+    const meta = coinNames[ticker] ?? { name: ticker, rate: 1550, network: "mainnet" };
+    wallet = {
+      coinName: meta.name,
+      coinTicker: ticker,
+      rateNgn: meta.rate,
+      coinBalance: {
+        cryptoBalance: "0.000000",
+        nairaBalance: "0.00",
+        lastUpdated: new Date().toISOString(),
+      },
+      networks: [
+        {
+          id: `w-${ticker.toLowerCase()}`,
+          address: `0xpreview_${ticker.toLowerCase()}_wallet`,
+          network: meta.network,
+          withdrawsEnabled: true,
+        },
+      ],
+    };
+    wallets.push(wallet);
+  }
+
+  const balanceBefore = Number(wallet.coinBalance.cryptoBalance);
+  if (direction === "debit" && balanceBefore < amount) {
+    return json(
+      {
+        message: `Insufficient ${ticker} balance. User balance is ${balanceBefore} ${ticker}, cannot debit ${amount} ${ticker}.`,
+      },
+      400,
+    );
+  }
+
+  const balanceAfter = Number(
+    (direction === "credit" ? balanceBefore + amount : balanceBefore - amount).toFixed(8),
+  );
+  wallet.coinBalance.cryptoBalance = balanceAfter.toFixed(6);
+  wallet.coinBalance.nairaBalance = (balanceAfter * wallet.rateNgn).toFixed(2);
+  wallet.coinBalance.lastUpdated = new Date().toISOString();
+
+  const reference = `FLP-CRYPTO-${direction === "debit" ? "DEBIT" : "CREDIT"}-${crypto.randomUUID()}`;
+  const narration = text(body.narration).trim();
+
+  audit(
+    direction === "credit" ? "USER_WALLET_MANUALLY_CREDITED" : "USER_WALLET_MANUALLY_DEBITED",
+    {
+      recipientId: user.id,
+      recipientEmail: user.email,
+      coinTicker: ticker,
+      amount,
+      balanceBefore,
+      balanceAfter,
+      reference,
+    },
+    { type: "user", id: user.id },
+    narration || undefined,
+  );
+
+  return json({
+    message:
+      `${amount} ${ticker} ${direction === "credit" ? "credited to" : "debited from"} ` +
+      `${fullName(user)}. (Preview only: nothing leaves this browser.)`,
+    data: {
+      user: { id: user.id, email: user.email, userName: user.userName },
+      coinTicker: ticker,
+      ...(direction === "credit" ? { amountCredited: amount } : { amountDebited: amount }),
+      cryptoBalanceBefore: balanceBefore,
+      cryptoBalanceAfter: balanceAfter,
+      reference,
+    },
+  });
+}
+
+route("POST", `${core}/credit-user-crypto`, (req) => adjustCryptoWallet("credit", req.body));
+route("POST", `${core}/debit-user-crypto`, (req) => adjustCryptoWallet("debit", req.body));
 
 route("GET", `${core}/user-statement-download/:id`, (_r, [id]) => {
   const rows = transactions.filter((t) => t.userId === id);
