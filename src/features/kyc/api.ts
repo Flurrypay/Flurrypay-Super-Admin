@@ -223,6 +223,64 @@ export async function resolveDocumentUrl(location: string): Promise<string> {
   return new URL(url, env.NEXT_PUBLIC_API_URL).toString();
 }
 
+function tokenizeName(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2);
+}
+
+function nameTokensMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a))) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 4) return false;
+  let diffs = 0;
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else {
+      diffs++;
+      if (diffs > 1) return false;
+      if (a.length > b.length) i++;
+      else if (b.length > a.length) j++;
+      else {
+        i++;
+        j++;
+      }
+    }
+  }
+  return diffs + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * Returns true when the customer's account name tokens match the verified
+ * registry name tokens (including middle names and transposed name order,
+ * e.g. "Sanusi Vincent" vs "SANUSI VINCENT YEKINI").
+ */
+export function doesRegistryNameMatchAccount(accountName: string, registryName: string): boolean {
+  const accountTokens = tokenizeName(accountName);
+  const registryTokens = tokenizeName(registryName);
+  if (accountTokens.length === 0 || registryTokens.length === 0) return true;
+
+  const matchedAccountTokens = accountTokens.filter((acc) =>
+    registryTokens.some((reg) => nameTokensMatch(acc, reg)),
+  );
+  if (matchedAccountTokens.length === accountTokens.length) return true;
+  if (matchedAccountTokens.length >= 2) return true;
+
+  const matchedRegistryTokens = registryTokens.filter((reg) =>
+    accountTokens.some((acc) => nameTokensMatch(acc, reg)),
+  );
+  return matchedRegistryTokens.length === registryTokens.length;
+}
+
 /** Maps a raw `kyc_profiles` entity onto the allowlisted shape used by the queue. */
 export function entityToProfile(raw: Record<string, unknown>) {
   const evidence = isRecord(raw.identityVerificationEvidence)
@@ -231,7 +289,25 @@ export function entityToProfile(raw: Record<string, unknown>) {
   const bvnEvidence = isRecord(evidence.bvn) ? evidence.bvn : {};
   const ninEvidence = isRecord(evidence.nin) ? evidence.nin : {};
   const biometric = isRecord(evidence.biometric) ? evidence.biometric : {};
-  const linked = Boolean(
+  const idType = typeof raw.identityType === "string" ? raw.identityType.toUpperCase() : "";
+  const resolvedBvn =
+    raw.bvn ?? (idType === "BVN" ? raw.identityNumber : null) ?? bvnEvidence.number ?? null;
+  const resolvedNin =
+    raw.nin ?? (idType === "NIN" ? raw.identityNumber : null) ?? ninEvidence.number ?? null;
+  const currentLevel = typeof raw.currentLevel === "number" ? raw.currentLevel : 0;
+  const hasRegistryRecord = Boolean(
+    raw.verifiedFirstName ||
+    raw.verifiedLastName ||
+    raw.bvnVerifiedAt ||
+    raw.level1VerifiedAt ||
+    resolvedBvn ||
+    resolvedNin ||
+    raw.identityNumber,
+  );
+  const level1Verified =
+    raw.level1Status === "VERIFIED" || (currentLevel >= 1 && hasRegistryRecord);
+  const level2Verified = raw.level2Status === "VERIFIED" || currentLevel >= 2;
+  const strictLinked = Boolean(
     raw.level1Status === "VERIFIED" &&
     raw.level2Status === "VERIFIED" &&
     raw.bvn &&
@@ -240,8 +316,15 @@ export function entityToProfile(raw: Record<string, unknown>) {
     ninEvidence.number === raw.nin &&
     ninEvidence.matchedBvn === raw.bvn,
   );
+  const linked =
+    strictLinked ||
+    Boolean(
+      level1Verified &&
+      level2Verified &&
+      (resolvedNin || resolvedBvn || raw.level2VerifiedAt || raw.ninVerifiedAt),
+    );
   const live = Boolean(
-    linked &&
+    strictLinked &&
     biometric.sessionId &&
     biometric.provider === "AWS_REKOGNITION" &&
     typeof biometric.livenessScore === "number" &&
@@ -254,32 +337,42 @@ export function entityToProfile(raw: Record<string, unknown>) {
     raw.faceMatchVerifiedAt &&
     raw.livenessCheckUrl,
   );
+  const userObj = isRecord(raw.user) ? raw.user : null;
+  const accountName = userObj
+    ? [userObj.firstName, userObj.lastName].filter(Boolean).join(" ")
+    : "";
+  const registryName = [raw.verifiedFirstName, raw.verifiedMiddleName, raw.verifiedLastName]
+    .filter(Boolean)
+    .join(" ");
+  const hasNameMismatch =
+    Boolean(raw.nameMismatch) &&
+    registryName.length > 0 &&
+    (!accountName || !doesRegistryNameMatchAccount(accountName, registryName));
+
   return {
     ...raw,
     level1: {
-      status: raw.level1Status,
-      providerVerified: Boolean(
-        raw.bvn && raw.level1Status === "VERIFIED" && bvnEvidence.number === raw.bvn,
-      ),
-      bvnVerifiedAt: raw.bvnVerifiedAt,
+      status: level1Verified ? "VERIFIED" : raw.level1Status,
+      providerVerified: level1Verified && hasRegistryRecord,
+      bvnVerifiedAt: raw.bvnVerifiedAt ?? raw.level1VerifiedAt,
       identityType: raw.identityType,
       identityNumberLast4: raw.identityNumber,
-      bvnLast4: raw.bvn,
-      ninLast4: raw.nin,
-      verifiedAt: raw.level1VerifiedAt,
+      bvnLast4: resolvedBvn,
+      ninLast4: resolvedNin,
+      verifiedAt: raw.level1VerifiedAt ?? raw.bvnVerifiedAt,
       verifiedFirstName: raw.verifiedFirstName,
       verifiedMiddleName: raw.verifiedMiddleName,
       verifiedLastName: raw.verifiedLastName,
       verifiedGender: raw.verifiedGender,
       verifiedBirthdate: raw.verifiedBirthdate,
       verifiedPhotoUrl: raw.verifiedPhotoUrl,
-      nameMismatch: raw.nameMismatch,
+      nameMismatch: hasNameMismatch,
     },
     level2: {
-      status: raw.level2Status,
-      submitted: Boolean(raw.nin),
-      ninLast4: raw.nin,
-      ninVerifiedAt: raw.ninVerifiedAt,
+      status: level2Verified ? "VERIFIED" : raw.level2Status,
+      submitted: Boolean(resolvedNin || raw.level2SubmittedAt || level2Verified),
+      ninLast4: resolvedNin,
+      ninVerifiedAt: raw.ninVerifiedAt ?? raw.level2VerifiedAt,
       verifiedPhotoUrl: ninEvidence.photo,
       identityMatched: linked,
       submittedAt: raw.level2SubmittedAt,
@@ -291,7 +384,7 @@ export function entityToProfile(raw: Record<string, unknown>) {
       documentUrl: raw.proofOfAddressDocumentUrl,
       addressVerificationStatus: raw.addressVerificationStatus,
       addressVerificationIsVague: raw.addressVerificationIsVague,
-      verifiedAt: raw.level2VerifiedAt,
+      verifiedAt: raw.level2VerifiedAt ?? raw.ninVerifiedAt,
       rejectionReason: raw.level2RejectionReason,
     },
     level3: {

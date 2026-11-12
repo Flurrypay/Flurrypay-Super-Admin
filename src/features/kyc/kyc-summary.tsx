@@ -16,7 +16,13 @@ import { Button } from "@/components/ui/button";
 import { useHasPermission } from "@/features/auth/admin-context";
 import { humanizeEnum } from "@/lib/format";
 
-import { approveKycLevel, type KycLevel, type KycProfile, rejectKycLevel } from "./api";
+import {
+  approveKycLevel,
+  doesRegistryNameMatchAccount,
+  type KycLevel,
+  type KycProfile,
+  rejectKycLevel,
+} from "./api";
 import { KycDocument } from "./kyc-document";
 import { KYC_LEVEL_INFO, KYC_STATUS } from "./labels";
 
@@ -95,29 +101,50 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
     .filter(Boolean)
     .join(" ");
 
+  const level1EffectiveStatus =
+    level1.status === "VERIFIED" || level1.providerVerified || profile.currentLevel >= 1
+      ? "VERIFIED"
+      : level1.status;
+  const level2EffectiveStatus =
+    level2.status === "VERIFIED" || level2.identityMatched || profile.currentLevel >= 2
+      ? "VERIFIED"
+      : level2.status;
+  const isLevel1Verified = level1EffectiveStatus === "VERIFIED";
+  const isLevel2Verified = level2EffectiveStatus === "VERIFIED";
+  const showNameMismatch = Boolean(
+    level1.nameMismatch &&
+    verifiedName &&
+    !doesRegistryNameMatchAccount(customerName, verifiedName),
+  );
+  const filteredMissingSteps = (profile.review?.missingSteps ?? []).filter((step) => {
+    if (isLevel1Verified && step.toLowerCase().includes("verify bvn")) return false;
+    if (isLevel2Verified && step.toLowerCase().includes("verify nin")) return false;
+    return true;
+  });
+
   return (
     <div className="grid gap-4">
-      {profile.review && profile.review.missingSteps.length > 0 && (
+      {level3.status === "PENDING" && filteredMissingSteps.length > 0 && (
         <section
           className="rounded-xl border border-warning/25 bg-warning/5 p-4"
           aria-label="Required verification steps"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">
-              {profile.review.legacySubmission
+              {profile.review?.legacySubmission
                 ? "Legacy submission · follow-up required"
                 : "Customer action required"}
             </h3>
             <span className="text-xs text-muted-foreground">Current tier retained</span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {profile.review.retainedAddressDocument
+            {profile.review?.retainedAddressDocument
               ? "The existing address document is retained and available below. "
               : ""}
             Complete the missing steps before a new Level 3 decision.
           </p>
           <ol className="mt-3 grid gap-2">
-            {profile.review.missingSteps.map((step, index) => (
+            {filteredMissingSteps.map((step, index) => (
               <li key={step} className="flex gap-2 text-xs">
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-full border bg-background font-medium">
                   {index + 1}
@@ -163,7 +190,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         />
       </DetailSection>
 
-      {(!level1.providerVerified || !level2.identityMatched) && (
+      {level3.status === "PENDING" && (!isLevel1Verified || !isLevel2Verified) && (
         <Alert tone="warning">
           <AlertDescription>
             Historical tiers remain on record. Complete the linked automatic BVN and NIN checks
@@ -174,9 +201,9 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
       <DetailSection
         title={KYC_LEVEL_INFO[1].title}
         description={KYC_LEVEL_INFO[1].description}
-        actions={actions(1, level1.status)}
+        actions={actions(1, level1EffectiveStatus)}
       >
-        {level1.nameMismatch && (
+        {showNameMismatch && (
           <Alert tone="warning" className="mb-3">
             <TriangleAlertIcon aria-hidden />
             <AlertDescription className="text-foreground">
@@ -189,19 +216,19 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
           items={[
             {
               label: "Status",
-              value: (
-                <StatusBadge
-                  status={resolveStatus(
-                    KYC_STATUS,
-                    level1.providerVerified ? level1.status : "NOT_STARTED",
-                  )}
-                />
-              ),
+              value: <StatusBadge status={resolveStatus(KYC_STATUS, level1EffectiveStatus)} />,
             },
-            { label: "BVN verified", value: <DateTime value={level1.bvnVerifiedAt} /> },
+            {
+              label: "BVN verified",
+              value: <DateTime value={level1.bvnVerifiedAt ?? level1.verifiedAt} />,
+            },
             {
               label: "BVN",
-              value: level1.bvnLast4 ? `•••••••${level1.bvnLast4}` : null,
+              value: level1.bvnLast4
+                ? `•••••••${level1.bvnLast4}`
+                : level1.identityNumberLast4
+                  ? `•••••••${level1.identityNumberLast4}`
+                  : null,
               hideWhenEmpty: true,
             },
             { label: "Registry name", value: verifiedName || null },
@@ -214,30 +241,27 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
       <DetailSection
         title={KYC_LEVEL_INFO[2].title}
         description={KYC_LEVEL_INFO[2].description}
-        actions={actions(2, level2.status)}
+        actions={actions(2, level2EffectiveStatus)}
       >
         <DetailList
           columns={2}
           items={[
             {
               label: "Status",
-              value: (
-                <StatusBadge
-                  status={resolveStatus(
-                    KYC_STATUS,
-                    level2.identityMatched ? level2.status : "NOT_STARTED",
-                  )}
-                />
-              ),
+              value: <StatusBadge status={resolveStatus(KYC_STATUS, level2EffectiveStatus)} />,
             },
             { label: "NIN", value: level2.ninLast4 ? `•••••••${level2.ninLast4}` : null },
             {
               label: "BVN ↔ NIN",
-              value: level2.identityMatched
-                ? "Identity details matched"
-                : "Linked verification required",
+              value:
+                level2.identityMatched || (isLevel1Verified && isLevel2Verified)
+                  ? "Identity details matched"
+                  : "Linked verification required",
             },
-            { label: "Verified", value: <DateTime value={level2.ninVerifiedAt} /> },
+            {
+              label: "Verified",
+              value: <DateTime value={level2.ninVerifiedAt ?? level2.verifiedAt} />,
+            },
           ]}
         />
       </DetailSection>

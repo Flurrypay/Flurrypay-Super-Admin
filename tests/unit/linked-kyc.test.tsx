@@ -143,4 +143,50 @@ describe("linked KYC admin review", () => {
         .canApprove,
     ).toBe(false);
   });
+
+  it("recognises middle-name registry matches and verified Level 1/2 records without false warnings", () => {
+    const raw = {
+      id: "k-sanusi",
+      userId: "u-sanusi",
+      currentLevel: 2,
+      dailyWithdrawalLimit: 500000,
+      level1Status: "VERIFIED",
+      level1VerifiedAt: "2026-09-04T14:25:00Z",
+      level2Status: "VERIFIED",
+      level2VerifiedAt: "2026-09-04T14:25:00Z",
+      level3Status: "NOT_STARTED",
+      verifiedFirstName: "SANUSI",
+      verifiedMiddleName: "VINCENT",
+      verifiedLastName: "YEKINI",
+      verifiedBirthdate: "2005-07-09",
+      verifiedGender: "m",
+      nameMismatch: true,
+      identityVerificationEvidence: null,
+      review: {
+        category: "LEGACY",
+        legacySubmission: true,
+        retainedAddressDocument: true,
+        missingSteps: ["Verify BVN automatically", "Verify NIN against the BVN record"],
+        canApprove: false,
+      },
+    };
+    const parsed = kycProfileSchema.parse(entityToProfile(raw));
+    expect(parsed.level1.status).toBe("VERIFIED");
+    expect(parsed.level1.providerVerified).toBe(true);
+    expect(parsed.level2.status).toBe("VERIFIED");
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Tooltip.Provider>
+          <KycSummary profile={parsed} customerName="Sanusi Vincent" />
+        </Tooltip.Provider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.queryByText("The registry name does not match the name on the account."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Legacy submission · follow-up required")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Verified").length).toBeGreaterThanOrEqual(2);
+  });
 });
