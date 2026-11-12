@@ -510,7 +510,7 @@ function CryptoWallets({
                     <div className="inline-flex items-center gap-1.5">
                       <Button
                         variant="outline"
-                        size="xs"
+                        size="sm"
                         onClick={() => {
                           onAdjust({
                             direction: "credit",
@@ -524,7 +524,7 @@ function CryptoWallets({
                       </Button>
                       <Button
                         variant="outline"
-                        size="xs"
+                        size="sm"
                         onClick={() => {
                           onAdjust({
                             direction: "debit",

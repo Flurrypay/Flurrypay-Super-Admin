@@ -376,7 +376,7 @@ export function WalletAdjustmentDialog({
           <Button
             type="button"
             variant="outline"
-            size="xs"
+            size="sm"
             onClick={() => {
               setChangingUser((prev) => !prev);
             }}
