@@ -327,13 +327,14 @@ export async function mockApi(
         data: {
           providers: TEST_PAYOUT_PROVIDERS,
           activeProvider: TEST_PAYOUT_PROVIDERS[0],
+          totalFloat: 51370300.55,
           nombaSettlement: {
             balance: 48250300.55,
             currency: "NGN",
             lastSynced: "2026-09-23T11:00:00.000Z",
           },
           totalUserLiability: 1200000,
-          coverage: 47050300.55,
+          coverage: 50170300.55,
           isUnderFunded: false,
         },
       }),

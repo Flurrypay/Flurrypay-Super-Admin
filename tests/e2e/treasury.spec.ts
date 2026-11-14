@@ -7,11 +7,11 @@ test.describe("treasury", () => {
     await mockApi(page, SUPER_ADMIN);
     await signIn(page, SUPER_ADMIN, "/treasury");
 
-    // Naira float, crypto reserves, liability and coverage — the four numbers
+    // Total naira float, crypto reserves, liability and coverage — the four numbers
     // that together answer "can we meet withdrawals today?".
-    await expect(page.getByText("₦48,250,300.55").first()).toBeVisible();
+    await expect(page.getByText("₦51,370,300.55").first()).toBeVisible();
     await expect(page.getByText("₦1,200,000.00").first()).toBeVisible();
-    await expect(page.getByText("₦47,050,300.55").first()).toBeVisible();
+    await expect(page.getByText("₦50,170,300.55").first()).toBeVisible();
     // The reserves total is summed from the priced wallets only.
     await expect(page.getByText("₦285,696,682.00").first()).toBeVisible();
   });
