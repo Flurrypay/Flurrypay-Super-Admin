@@ -51,6 +51,9 @@ const BREAKDOWN_ROWS: { key: keyof EarningsBreakdown; label: string }[] = [
   { key: "cryptoBuyCommissions", label: "Crypto buy commissions" },
   { key: "cryptoSaleCommissions", label: "Crypto sale commissions" },
   { key: "swapFees", label: "Swap fees" },
+  { key: "airtimeCommissions", label: "Airtime commissions" },
+  { key: "dataCommissions", label: "Data commissions" },
+  { key: "billCommissions", label: "Bill & utility fees" },
   { key: "transferFees", label: "Transfer fees" },
   { key: "otherEarnings", label: "Other" },
 ];
@@ -151,7 +154,11 @@ export function TreasuryView() {
       align: "right",
       priority: "secondary",
       cell: (e) =>
-        e.coin ? <Amount value={e.cryptoAmount} currency={e.coin} className="font-normal" /> : "—",
+        e.coin && e.coin.toUpperCase() !== "NGN" && Number(e.cryptoAmount) > 0 ? (
+          <Amount value={e.cryptoAmount} currency={e.coin} className="font-normal" />
+        ) : (
+          "—"
+        ),
     },
     {
       id: "naira",
