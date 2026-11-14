@@ -124,6 +124,19 @@ export function TreasuryView() {
 
   const b = balances.data;
   const settlement = b?.activeProvider?.cachedBalance ?? b?.nombaSettlement?.balance ?? null;
+  const totalNairaFloat =
+    b?.totalFloat ??
+    (b?.providers && b.providers.length > 0
+      ? b.providers.reduce((sum, p) => sum + (Number(p.cachedBalance) || 0), 0)
+      : settlement);
+  const coverage =
+    totalNairaFloat !== null && b?.totalUserLiability !== undefined
+      ? Number(totalNairaFloat) - Number(b.totalUserLiability)
+      : b?.coverage;
+  const isUnderFunded =
+    coverage !== undefined && coverage !== null
+      ? Number(coverage) < 0
+      : (b?.isUnderFunded ?? false);
   const reserveTotal = totalReserveNaira(reserves.data);
 
   const earningColumns: DataColumn<Earning>[] = [
@@ -204,13 +217,13 @@ export function TreasuryView() {
 
   return (
     <div className="grid gap-5">
-      {b?.isUnderFunded && (
+      {isUnderFunded && (
         <Alert tone="danger">
           <TriangleAlertIcon aria-hidden />
-          <AlertTitle>Settlement balance is below customer balances</AlertTitle>
+          <AlertTitle>Total naira float is below customer balances</AlertTitle>
           <AlertDescription>
-            Customers hold more naira than the active payout account. Fund it before the shortfall
-            reaches a withdrawal — the account details are under Accounts → Top up.
+            Customers hold more naira than the combined company float. Fund your accounts before the
+            shortfall reaches a withdrawal — account details are under Accounts → Top up.
           </AlertDescription>
         </Alert>
       )}
@@ -230,16 +243,12 @@ export function TreasuryView() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric
             label="Naira float"
-            value={settlement !== null ? 0 : undefined}
-            display={<Amount value={settlement} currency="NGN" className="font-semibold" />}
+            value={totalNairaFloat !== null ? 0 : undefined}
+            display={<Amount value={totalNairaFloat} currency="NGN" className="font-semibold" />}
             icon={LandmarkIcon}
             isPending={balances.isPending}
             isError={balances.isError}
-            definition={
-              b?.activeProvider
-                ? `Balance on ${b.activeProvider.name}, the account customer payouts leave from.`
-                : "Balance on the settlement account customer payouts leave from."
-            }
+            definition="Total available Naira across all company payout and settlement accounts (FalconPay, Nomba, OPay)."
           />
           <Metric
             label="Crypto reserves"
@@ -263,13 +272,13 @@ export function TreasuryView() {
           />
           <Metric
             label="Coverage"
-            value={b?.isUnderFunded ? 1 : 0}
+            value={isUnderFunded ? 1 : 0}
             attention
-            display={<Amount value={b?.coverage} currency="NGN" signed className="font-semibold" />}
+            display={<Amount value={coverage} currency="NGN" signed className="font-semibold" />}
             icon={ScaleIcon}
             isPending={balances.isPending}
             isError={balances.isError}
-            definition="Naira float minus what customers hold. Negative means a run on withdrawals could not be met from the float alone. Crypto reserves are not counted — they are not naira until sold."
+            definition="Total Naira float minus customer liabilities. Negative means a run on withdrawals could not be met from the float alone. Crypto reserves are not counted — they are not naira until sold."
           />
         </div>
       </section>

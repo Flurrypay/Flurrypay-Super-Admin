@@ -125,6 +125,7 @@ const treasuryBalancesSchema = z
     data: z.object({
       providers: z.array(payoutProviderSchema).catch([]),
       activeProvider: payoutProviderSchema.nullish().catch(null),
+      totalFloat: decimal.nullish().catch(null),
       nombaSettlement: z
         .object({
           balance: decimal,

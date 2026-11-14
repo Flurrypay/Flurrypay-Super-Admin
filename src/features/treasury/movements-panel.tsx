@@ -252,7 +252,8 @@ export function MovementsPanel({ state, setState, period, rangeKey }: Props) {
       />
 
       <p className="text-xs text-muted-foreground">
-        Scoped to the signed-in administrator&apos;s own account, which is how the API records them.
+        Tracks treasury float movements across company accounts (funding, settlement withdrawals,
+        top-ups). Customer transactions are tracked on Operations → Transactions.
       </p>
     </div>
   );
