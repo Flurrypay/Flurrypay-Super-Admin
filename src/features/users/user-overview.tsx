@@ -66,24 +66,30 @@ export function UserOverview({ user }: { user: UserDetail }) {
             },
           ]}
         />
-        {user.bankDetails.length > 0 && (
-          <div className="mt-4 border-t pt-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Deposit account</p>
-            {user.bankDetails.map((bank) => (
-              <DetailList
-                key={bank.accountNumber}
-                items={[
-                  { label: "Bank", value: bank.bankName },
-                  {
-                    label: "Account number",
-                    value: <Identifier value={bank.accountNumber} label="account number" />,
-                  },
-                  { label: "Account name", value: bank.accountName },
-                ]}
-              />
-            ))}
-          </div>
-        )}
+        {(() => {
+          const depositAccounts = user.bankDetails.filter(
+            (b) => !b.bankName.toLowerCase().includes("nomba"),
+          );
+          if (depositAccounts.length === 0) return null;
+          return (
+            <div className="mt-4 border-t pt-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Deposit account</p>
+              {depositAccounts.map((bank) => (
+                <DetailList
+                  key={bank.accountNumber}
+                  items={[
+                    { label: "Bank", value: bank.bankName },
+                    {
+                      label: "Account number",
+                      value: <Identifier value={bank.accountNumber} label="account number" />,
+                    },
+                    { label: "Account name", value: bank.accountName },
+                  ]}
+                />
+              ))}
+            </div>
+          );
+        })()}
       </DetailSection>
 
       <DetailSection title="Access & restrictions">
