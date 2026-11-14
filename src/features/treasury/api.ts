@@ -88,15 +88,7 @@ export const earningSchema = z.object({
 });
 export type Earning = z.output<typeof earningSchema>;
 
-export const EARNING_TYPES = [
-  "buy",
-  "sell",
-  "swap",
-  "airtime",
-  "data",
-  "bills",
-  "transfer",
-] as const;
+export const EARNING_TYPES = ["buy", "sell", "swap", "airtime", "data"] as const;
 
 export function fetchEarnings(
   query: EarningsRange & { page: number; pageSize: number; transactionType?: string | null },

@@ -53,9 +53,6 @@ const BREAKDOWN_ROWS: { key: keyof EarningsBreakdown; label: string }[] = [
   { key: "swapFees", label: "Swap fees" },
   { key: "airtimeCommissions", label: "Airtime commissions" },
   { key: "dataCommissions", label: "Data commissions" },
-  { key: "billCommissions", label: "Bill & utility fees" },
-  { key: "transferFees", label: "Transfer fees" },
-  { key: "otherEarnings", label: "Other" },
 ];
 
 /**
