@@ -13,14 +13,16 @@ import { Identifier } from "@/components/format/identifier";
 import { resolveStatus, StatusBadge } from "@/components/status/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { useHasPermission } from "@/features/auth/admin-context";
+import { useHasPermission, useIsSuperAdmin } from "@/features/auth/admin-context";
 import { humanizeEnum } from "@/lib/format";
 
+import { AdjustLimitDialog } from "./adjust-limit-dialog";
 import {
   approveKycLevel,
   doesRegistryNameMatchAccount,
   type KycLevel,
   type KycProfile,
+  overrideUserLimit,
   rejectKycLevel,
 } from "./api";
 import { KycDocument } from "./kyc-document";
@@ -35,8 +37,10 @@ interface KycSummaryProps {
 
 export function KycSummary({ profile, customerName }: KycSummaryProps) {
   const canReview = useHasPermission("kyc.review");
+  const isSuperAdmin = useIsSuperAdmin();
   const queryClient = useQueryClient();
   const [decision, setDecision] = useState<Decision>(null);
+  const [adjustLimitOpen, setAdjustLimitOpen] = useState(false);
 
   const decide = useMutation({
     mutationFn: ({
@@ -49,13 +53,27 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
       kind: "approve" | "reject";
       reason: string;
       twoFACode: string;
-    }) =>
-      kind === "approve"
-        ? approveKycLevel(profile.userId, level, twoFACode)
-        : rejectKycLevel(profile.userId, level, reason, twoFACode),
+    }) => {
+      if (kind === "approve") {
+        if (level === 3 && profile.level3.canApprove) {
+          return approveKycLevel(profile.userId, level, twoFACode);
+        }
+        const defaultLimits: Record<KycLevel, number> = { 1: 200_000, 2: 1_000_000, 3: 50_000_000 };
+        const currentDailyLimit = Number(profile.dailyWithdrawalLimit || 0);
+        const dailyLimit = Math.max(currentDailyLimit, defaultLimits[level]);
+        return overrideUserLimit({
+          userId: profile.userId,
+          dailyLimit,
+          kycLevel: level,
+          note: reason || `Level ${level} verification approved by Super Admin`,
+          twoFACode,
+        });
+      }
+      return rejectKycLevel(profile.userId, level, reason, twoFACode);
+    },
     onSuccess: async (_data, { level, kind }) => {
       toast.success(
-        `Level ${level} ${kind === "approve" ? "approved" : "rejected"} for ${customerName}`,
+        `Level ${level} ${kind === "approve" ? "verified" : "rejected"} for ${customerName}`,
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["kyc-queue"] }),
@@ -66,31 +84,56 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
     },
   });
 
-  const actions = (level: KycLevel, status: string) =>
-    canReview && level === 3 && status === "PENDING" ? (
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setDecision({ level, kind: "reject" });
-          }}
-        >
-          <XIcon aria-hidden />
-          Reject
-        </Button>
-        <Button
-          size="sm"
-          disabled={!profile.level3.canApprove}
-          onClick={() => {
-            setDecision({ level, kind: "approve" });
-          }}
-        >
-          <CheckIcon aria-hidden />
-          Approve
-        </Button>
-      </div>
-    ) : null;
+  const actions = (level: KycLevel, status: string) => {
+    if (!canReview && !isSuperAdmin) return null;
+    const isVerified = status === "VERIFIED";
+
+    if (level === 3 && status === "PENDING") {
+      return (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDecision({ level, kind: "reject" });
+            }}
+          >
+            <XIcon aria-hidden />
+            Reject
+          </Button>
+          <Button
+            size="sm"
+            disabled={!profile.level3.canApprove && !isSuperAdmin}
+            onClick={() => {
+              setDecision({ level, kind: "approve" });
+            }}
+          >
+            <CheckIcon aria-hidden />
+            Approve
+          </Button>
+        </div>
+      );
+    }
+
+    if (!isVerified && (isSuperAdmin || canReview)) {
+      return (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDecision({ level, kind: "approve" });
+            }}
+          >
+            <CheckIcon aria-hidden />
+            Verify Level {level}
+          </Button>
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   const { level1, level2, level3 } = profile;
   const verifiedName = [
@@ -168,7 +211,22 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         </DetailSection>
       )}
 
-      <DetailSection title="Limits">
+      <DetailSection
+        title="Limits"
+        actions={
+          isSuperAdmin ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setAdjustLimitOpen(true);
+              }}
+            >
+              Adjust limit
+            </Button>
+          ) : null
+        }
+      >
         <DetailList
           columns={2}
           items={[
@@ -373,6 +431,15 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
             twoFACode: twoFACode ?? "",
           });
         }}
+      />
+
+      <AdjustLimitDialog
+        open={adjustLimitOpen}
+        onOpenChange={setAdjustLimitOpen}
+        userId={profile.userId}
+        customerName={customerName}
+        currentLevel={profile.currentLevel}
+        currentLimit={profile.dailyWithdrawalLimit}
       />
     </div>
   );

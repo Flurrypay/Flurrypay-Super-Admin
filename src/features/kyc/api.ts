@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { env } from "@/env";
+import { sessionStore } from "@/features/auth/session";
 import { adminApi } from "@/lib/api/admin-client";
 import { adminPaths } from "@/lib/api/admin-paths";
 import { decimal, nullableString, timestamp } from "@/lib/api/schema-helpers";
@@ -203,24 +204,76 @@ export function rejectKycLevel(userId: string, level: KycLevel, reason: string, 
   });
 }
 
+/** Super-admin manual override of KYC level and/or daily withdrawal limit. */
+export function overrideUserLimit(payload: {
+  userId: string;
+  dailyLimit: number;
+  kycLevel?: 0 | 1 | 2 | 3;
+  note: string;
+  twoFACode: string;
+}) {
+  return adminApi.post(`${base}/override-limit`, payload);
+}
+
 /* ─── Documents ──────────────────────────────────────────────────────────── */
 
 const PRIVATE_PREFIX = "private:";
 
 /**
  * Resolves a stored document location to something the browser can load:
- * legacy public URLs are used as-is; `private:` keys get a 5-minute signed URL.
+ * legacy public URLs are used as-is; private keys get a 5-minute signed URL or direct authenticated stream URL.
  */
 export async function resolveDocumentUrl(location: string): Promise<string> {
-  if (!location.startsWith(PRIVATE_PREFIX) && !location.startsWith("private/")) return location;
-  const key = location.startsWith(PRIVATE_PREFIX)
-    ? location.slice(PRIVATE_PREFIX.length)
-    : location;
-  const { url } = await adminApi.get("/files/private/admin-sign", {
-    query: { key },
-    schema: z.object({ url: z.string().startsWith("/files/private/") }),
-  });
-  return new URL(url, env.NEXT_PUBLIC_API_URL).toString();
+  if (!location || location.startsWith("verified_liveness_")) return "";
+  const token = sessionStore.getToken();
+
+  // 1. If it's already a stream URL, make sure the admin bearer token is attached
+  if (location.includes("/files/private/stream")) {
+    const fullUrl = location.startsWith("http")
+      ? location
+      : new URL(location, env.NEXT_PUBLIC_API_URL).toString();
+    try {
+      const urlObj = new URL(fullUrl);
+      if (token && !urlObj.searchParams.has("token")) {
+        urlObj.searchParams.set("token", token);
+      }
+      return urlObj.toString();
+    } catch {
+      return location;
+    }
+  }
+
+  // 2. If it's a private key or starts with private: / private/
+  if (location.startsWith(PRIVATE_PREFIX) || location.startsWith("private/")) {
+    const key = location.startsWith(PRIVATE_PREFIX)
+      ? location.slice(PRIVATE_PREFIX.length)
+      : location;
+    try {
+      const { url } = await adminApi.get("/files/private/admin-sign", {
+        query: { key },
+        schema: z.object({ url: z.string().startsWith("/files/private/") }),
+      });
+      return new URL(url, env.NEXT_PUBLIC_API_URL).toString();
+    } catch {
+      // Fallback directly to stream endpoint with bearer token
+      const streamUrl = new URL("/files/private/stream", env.NEXT_PUBLIC_API_URL);
+      streamUrl.searchParams.set("key", key.startsWith("private/") ? key : `private/${key}`);
+      if (token) streamUrl.searchParams.set("token", token);
+      return streamUrl.toString();
+    }
+  }
+
+  // 3. If it looks like a relative file key (e.g. verification-selfie/..., users/..., etc.)
+  if (!location.startsWith("http") && !location.startsWith("data:")) {
+    const cleanKey = location.replace(/^\/+/, "");
+    const key = cleanKey.startsWith("private/") ? cleanKey : `private/${cleanKey}`;
+    const streamUrl = new URL("/files/private/stream", env.NEXT_PUBLIC_API_URL);
+    streamUrl.searchParams.set("key", key);
+    if (token) streamUrl.searchParams.set("token", token);
+    return streamUrl.toString();
+  }
+
+  return location;
 }
 
 function tokenizeName(value: unknown): string[] {
@@ -399,7 +452,14 @@ export function entityToProfile(raw: Record<string, unknown>) {
       proofOfAddressType: raw.proofOfAddressType,
       residentialAddress: raw.residentialAddress,
       documentUrl: raw.proofOfAddressDocumentUrl,
-      livenessUrl: raw.livenessCheckUrl,
+      livenessUrl:
+        typeof raw.livenessCheckUrl === "string" &&
+        !raw.livenessCheckUrl.startsWith("verified_liveness_")
+          ? raw.livenessCheckUrl
+          : typeof raw.enrolledFaceKey === "string" &&
+              !raw.enrolledFaceKey.startsWith("verified_liveness_")
+            ? raw.enrolledFaceKey
+            : null,
       livenessVerifiedAt: raw.faceMatchVerifiedAt,
       livenessProvider: biometric.provider,
       livenessScore: biometric.livenessScore,

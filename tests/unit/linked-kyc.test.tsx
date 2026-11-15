@@ -6,8 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import { entityToProfile, kycProfileSchema } from "@/features/kyc/api";
 import { KycSummary } from "@/features/kyc/kyc-summary";
 
-const access = vi.hoisted(() => ({ allowed: true }));
-vi.mock("@/features/auth/admin-context", () => ({ useHasPermission: () => access.allowed }));
+const access = vi.hoisted(() => ({ allowed: true, isSuperAdmin: false }));
+vi.mock("@/features/auth/admin-context", () => ({
+  useHasPermission: () => access.allowed,
+  useIsSuperAdmin: () => access.isSuperAdmin,
+}));
 vi.mock("@/features/kyc/kyc-document", () => ({
   KycDocument: ({ label, location }: { label: string; location: string | null }) => (
     <span>{location ? label : "No document"}</span>
