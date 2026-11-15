@@ -425,17 +425,30 @@ export function debitUserCryptoWallet(userId: string, input: CryptoWalletAdjustm
  * loss the ledger exists to surface, and the first thing to look at before
  * adjusting a balance by hand.
  */
-const ledgerEntrySchema = z.object({
-  id: z.string(),
-  direction: z.enum(["CREDIT", "DEBIT"]).catch("CREDIT"),
-  amountNaira: decimal,
-  balanceBefore: decimal,
-  balanceAfter: decimal,
-  source: z.string().catch(""),
-  reference: nullableString,
-  narration: nullableString,
-  createdAt: timestamp,
-});
+const ledgerEntrySchema = z
+  .object({
+    id: z.string().nullish(),
+    direction: z.enum(["CREDIT", "DEBIT"]).catch("CREDIT"),
+    amountNaira: decimal,
+    balanceBefore: decimal,
+    balanceAfter: decimal,
+    source: z.string().catch(""),
+    reference: nullableString,
+    narration: nullableString,
+    createdAt: timestamp.nullish(),
+    at: timestamp.nullish(),
+  })
+  .transform((row) => ({
+    id: row.id || `entry-${row.reference || Math.random().toString(36).slice(2)}`,
+    direction: row.direction,
+    amountNaira: row.amountNaira,
+    balanceBefore: row.balanceBefore,
+    balanceAfter: row.balanceAfter,
+    source: row.source,
+    reference: row.reference,
+    narration: row.narration,
+    createdAt: row.createdAt || row.at || new Date().toISOString(),
+  }));
 export type WalletLedgerEntry = z.output<typeof ledgerEntrySchema>;
 
 export function fetchUserWalletLedger(userId: string, limit = 50, signal?: AbortSignal) {

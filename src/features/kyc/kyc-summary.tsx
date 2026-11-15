@@ -222,7 +222,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
                 setAdjustLimitOpen(true);
               }}
             >
-              Adjust limit
+              Increase limit
             </Button>
           ) : null
         }
@@ -439,6 +439,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
         userId={profile.userId}
         customerName={customerName}
         currentLevel={profile.currentLevel}
+        level3Status={profile.level3.status}
         currentLimit={profile.dailyWithdrawalLimit}
       />
     </div>

@@ -1,21 +1,15 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheckIcon } from "lucide-react";
+import { ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Field, FormDialog } from "@/components/confirm/form-dialog";
 import { Amount } from "@/components/format/amount";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 import { overrideUserLimit } from "./api";
@@ -26,11 +20,11 @@ interface AdjustLimitDialogProps {
   userId: string;
   customerName: string;
   currentLevel: number;
+  level3Status: string;
   currentLimit: number | string | null;
 }
 
 const PRESET_LIMITS = [
-  { label: "₦1,000,000", value: 1_000_000 },
   { label: "₦2,000,000", value: 2_000_000 },
   { label: "₦5,000,000", value: 5_000_000 },
   { label: "₦10,000,000", value: 10_000_000 },
@@ -44,11 +38,15 @@ export function AdjustLimitDialog({
   userId,
   customerName,
   currentLevel,
+  level3Status,
   currentLimit,
 }: AdjustLimitDialogProps) {
   const queryClient = useQueryClient();
-  const [limitStr, setLimitStr] = useState<string>(String(currentLimit || 1_000_000));
-  const [targetLevel, setTargetLevel] = useState<string>("keep");
+  const currentLimitNum = Number(currentLimit || 1_000_000);
+  const isLevel3Verified = currentLevel >= 3 && level3Status === "VERIFIED";
+  const defaultInitialLimit = Math.max(currentLimitNum + 1_000_000, 2_000_000);
+
+  const [limitStr, setLimitStr] = useState<string>(String(defaultInitialLimit));
   const [note, setNote] = useState<string>("");
   const [twoFACode, setTwoFACode] = useState<string>("");
 
@@ -56,18 +54,17 @@ export function AdjustLimitDialog({
 
   const adjustMutation = useMutation({
     mutationFn: async () => {
-      const kycLevel = targetLevel === "keep" ? undefined : (Number(targetLevel) as 0 | 1 | 2 | 3);
+      // Maintains user's current KYC tier (kycLevel left undefined)
       return overrideUserLimit({
         userId,
         dailyLimit: parsedLimit,
-        kycLevel,
         note: note.trim(),
         twoFACode: twoFACode.trim(),
       });
     },
     onSuccess: async () => {
       toast.success(
-        `Withdrawal limit updated to ₦${parsedLimit.toLocaleString("en-NG")} for ${customerName}`,
+        `Withdrawal limit increased to ₦${parsedLimit.toLocaleString("en-NG")} for ${customerName}`,
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["user-kyc", userId] }),
@@ -79,14 +76,24 @@ export function AdjustLimitDialog({
   });
 
   function validate(): string | null {
+    if (!isLevel3Verified) {
+      return "Users must be in Level 3 and verified in Level 3 before their daily withdrawal limit can be increased.";
+    }
     if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
-      return "Please enter a valid daily withdrawal limit greater than zero.";
+      return "Please enter a valid daily withdrawal limit.";
+    }
+    const baseVerifiedLimit = 1_000_000;
+    if (parsedLimit < baseVerifiedLimit) {
+      return `Daily limit cannot be reduced below the verified Level 3 baseline of ₦${baseVerifiedLimit.toLocaleString("en-NG")}.`;
+    }
+    if (parsedLimit <= currentLimitNum) {
+      return `Limit can only be increased above the user's current limit of ₦${currentLimitNum.toLocaleString("en-NG")}.`;
     }
     if (!note.trim() || note.trim().length < 5) {
-      return "Please provide a reason / note for the limit change (minimum 5 characters).";
+      return "Please provide a reason / note for the limit increase (minimum 5 characters).";
     }
     if (!twoFACode.trim() || twoFACode.trim().length !== 6) {
-      return "A valid 6-digit authenticator code (2FA) is required for Super Admin overrides.";
+      return "A valid 6-digit authenticator code (2FA) is required for Super Admin limit changes.";
     }
     return null;
   }
@@ -95,36 +102,49 @@ export function AdjustLimitDialog({
     <FormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Adjust user withdrawal limit"
+      title="Increase user withdrawal limit"
       description={
         <span>
-          Set a custom daily withdrawal limit for{" "}
-          <strong className="font-semibold text-foreground">{customerName}</strong>. You may also
-          upgrade their KYC tier.
+          Assign a higher daily withdrawal limit for{" "}
+          <strong className="font-semibold text-foreground">{customerName}</strong>. Limits can only
+          be increased for Level 3 verified customers.
         </span>
       }
-      submitLabel="Apply limit override"
+      submitLabel="Apply limit increase"
       validate={validate}
       onSubmit={() => adjustMutation.mutateAsync()}
     >
       <div className="grid gap-4 py-2">
+        {!isLevel3Verified && (
+          <Alert tone="warning">
+            <ShieldAlertIcon aria-hidden />
+            <AlertTitle>Level 3 verification required</AlertTitle>
+            <AlertDescription>
+              A customer must be verified at KYC Level 3 before their daily withdrawal limit can be
+              increased. This account is currently at Level {currentLevel} ({level3Status}).
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="flex items-center justify-between rounded-lg border bg-muted/40 p-3 text-xs">
           <div>
             <span className="text-muted-foreground">Current limit:</span>{" "}
             <span className="font-semibold">
-              <Amount value={currentLimit} currency="NGN" />
+              <Amount value={currentLimitNum} currency="NGN" />
             </span>
           </div>
           <div>
-            <span className="text-muted-foreground">Current tier:</span>{" "}
-            <span className="font-semibold">Level {currentLevel}</span>
+            <span className="text-muted-foreground">Current status:</span>{" "}
+            <span className="font-semibold">
+              Level {currentLevel} · {level3Status === "VERIFIED" ? "Verified" : level3Status}
+            </span>
           </div>
         </div>
 
         <Field
           id="dailyLimit"
-          label="New daily withdrawal limit (NGN)"
-          hint="Pick a preset or type any custom limit."
+          label="New higher daily withdrawal limit (NGN)"
+          hint={`Must be greater than current limit (₦${currentLimitNum.toLocaleString("en-NG")}).`}
         >
           <div className="grid gap-2">
             <div className="relative">
@@ -134,8 +154,9 @@ export function AdjustLimitDialog({
               <Input
                 id="dailyLimit"
                 type="number"
-                min={0}
+                min={currentLimitNum + 1000}
                 step={50000}
+                disabled={!isLevel3Verified}
                 value={limitStr}
                 onChange={(e) => {
                   setLimitStr(e.target.value);
@@ -145,13 +166,14 @@ export function AdjustLimitDialog({
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {PRESET_LIMITS.map((preset) => (
+              {PRESET_LIMITS.filter((p) => p.value > currentLimitNum).map((preset) => (
                 <Button
                   key={preset.value}
                   type="button"
                   size="sm"
                   variant={parsedLimit === preset.value ? "secondary" : "outline"}
                   className="h-7 text-xs"
+                  disabled={!isLevel3Verified}
                   onClick={() => {
                     setLimitStr(String(preset.value));
                   }}
@@ -164,31 +186,14 @@ export function AdjustLimitDialog({
         </Field>
 
         <Field
-          id="targetLevel"
-          label="Target KYC tier"
-          hint="Optional: elevate this account's verified tier."
-        >
-          <Select value={targetLevel} onValueChange={setTargetLevel}>
-            <SelectTrigger id="targetLevel">
-              <SelectValue placeholder="Select tier" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="keep">Keep current level (Level {currentLevel})</SelectItem>
-              <SelectItem value="1">Level 1 · BVN verified (₦200,000 default)</SelectItem>
-              <SelectItem value="2">Level 2 · NIN verified (₦1,000,000 default)</SelectItem>
-              <SelectItem value="3">Level 3 · Fully verified (₦50,000,000 default)</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <Field
           id="reasonNote"
-          label="Reason for override"
-          hint="Stored in the audit log and customer compliance history."
+          label="Reason for limit increase"
+          hint="Required for audit logging and risk compliance."
         >
           <Textarea
             id="reasonNote"
             rows={2}
+            disabled={!isLevel3Verified}
             value={note}
             onChange={(e) => {
               setNote(e.target.value);
@@ -212,6 +217,7 @@ export function AdjustLimitDialog({
             maxLength={6}
             inputMode="numeric"
             autoComplete="one-time-code"
+            disabled={!isLevel3Verified}
             value={twoFACode}
             onChange={(e) => {
               setTwoFACode(e.target.value.replace(/[^0-9]/g, ""));
