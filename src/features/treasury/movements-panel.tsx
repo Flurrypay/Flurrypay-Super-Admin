@@ -252,8 +252,8 @@ export function MovementsPanel({ state, setState, period, rangeKey }: Props) {
       />
 
       <p className="text-xs text-muted-foreground">
-        Tracks treasury float movements across company accounts (funding, settlement withdrawals,
-        top-ups). Customer transactions are tracked on Operations → Transactions.
+        Tracks all treasury float movements, settlement withdrawals, customer payouts, payins, and
+        swaps across the platform.
       </p>
     </div>
   );

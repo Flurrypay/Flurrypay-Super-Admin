@@ -123,12 +123,13 @@ export function TreasuryView() {
   });
 
   const b = balances.data;
-  const settlement = b?.activeProvider?.cachedBalance ?? b?.nombaSettlement?.balance ?? null;
+  const activeProviders = (b?.providers ?? []).filter(
+    (p) => !p.provider.toLowerCase().includes("nomba") && !p.name.toLowerCase().includes("nomba"),
+  );
   const totalNairaFloat =
-    b?.totalFloat ??
-    (b?.providers && b.providers.length > 0
-      ? b.providers.reduce((sum, p) => sum + (Number(p.cachedBalance) || 0), 0)
-      : settlement);
+    activeProviders.length > 0
+      ? activeProviders.reduce((sum, p) => sum + (Number(p.cachedBalance) || 0), 0)
+      : (b?.totalFloat ?? b?.activeProvider?.cachedBalance ?? null);
   const coverage =
     totalNairaFloat !== null && b?.totalUserLiability !== undefined
       ? Number(totalNairaFloat) - Number(b.totalUserLiability)
@@ -318,7 +319,7 @@ export function TreasuryView() {
 
         <TabsContent value="accounts">
           <AccountsPanel
-            providers={balances.data?.providers ?? []}
+            providers={activeProviders}
             isLoading={balances.isFetching}
             error={balances.error}
             onRetry={() => void balances.refetch()}

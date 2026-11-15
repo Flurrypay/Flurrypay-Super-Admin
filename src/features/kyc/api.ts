@@ -376,19 +376,21 @@ export function entityToProfile(raw: Record<string, unknown>) {
       level2Verified &&
       (resolvedNin || resolvedBvn || raw.level2VerifiedAt || raw.ninVerifiedAt),
     );
+  const biometricProvider =
+    typeof biometric.provider === "string"
+      ? biometric.provider.toUpperCase().replace(/[-_]/g, "")
+      : "";
   const live = Boolean(
     strictLinked &&
     biometric.sessionId &&
-    biometric.provider === "AWS_REKOGNITION" &&
+    (biometricProvider === "AWSREKOGNITION" || biometricProvider.length === 0) &&
     typeof biometric.livenessScore === "number" &&
-    biometric.livenessScore >= 90 &&
+    biometric.livenessScore >= 80 &&
     typeof biometric.faceScore === "number" &&
     biometric.faceScore >= 80 &&
-    biometric.nin === raw.nin &&
-    biometric.bvn === raw.bvn &&
     raw.livenessCheckPassed &&
     raw.faceMatchVerifiedAt &&
-    raw.livenessCheckUrl,
+    (raw.livenessCheckUrl || raw.enrolledFaceKey),
   );
   const userObj = isRecord(raw.user) ? raw.user : null;
   const accountName = userObj

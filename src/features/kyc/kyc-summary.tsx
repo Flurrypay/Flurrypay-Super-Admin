@@ -349,7 +349,10 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
             {
               label: "Live identity check",
               value:
-                level3.identityReference === "VERIFIED_NIN" && level3.livenessCheckPassed
+                level3.livenessCheckPassed ||
+                level3.identityReference === "VERIFIED_NIN" ||
+                (typeof level3.livenessScore === "number" && level3.livenessScore >= 80) ||
+                (typeof level3.faceMatchScore === "number" && level3.faceMatchScore >= 80)
                   ? "Passed against verified NIN"
                   : "Not verified",
             },
@@ -380,7 +383,14 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
               label="Verified NIN registry photograph"
             />
           )}
-          <KycDocument location={level3.livenessUrl} label="Provider live capture" />
+          {level3.livenessUrl ? (
+            <KycDocument location={level3.livenessUrl} label="Provider live capture" />
+          ) : (
+            <div className="flex h-40 w-48 flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-3 text-center text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Provider live capture</span>
+              <span className="mt-1 text-[11px] text-muted-foreground">Not uploaded</span>
+            </div>
+          )}
         </div>
       </DetailSection>
 

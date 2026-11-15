@@ -41,8 +41,11 @@ export function UserOverview({ user }: { user: UserDetail }) {
               ) : null,
             },
             { label: "Country", value: user.country },
-            { label: "Date of birth", value: user.dateOfBirth },
-            { label: "Joined", value: <DateTime value={user.createdAt} /> },
+            {
+              label: "Date of birth",
+              value: user.dateOfBirth ? <DateTime value={user.dateOfBirth} format="date" /> : null,
+            },
+            { label: "Joined", value: <DateTime value={user.createdAt} format="date" /> },
             { label: "User ID", value: <Identifier value={user.id} label="user ID" /> },
           ]}
         />
@@ -205,7 +208,10 @@ export function UserOverview({ user }: { user: UserDetail }) {
             { label: "KYC level", value: <span className="tabular-nums">{user.level}</span> },
             {
               label: "Government ID",
-              value: user.hasVerifiedGovernmentId?.replace(/[-_]/g, " ").toLowerCase(),
+              value:
+                user.hasVerifiedGovernmentId && user.hasVerifiedGovernmentId !== "NOT-SUBMITTED"
+                  ? user.hasVerifiedGovernmentId.replace(/[-_]/g, " ").toLowerCase()
+                  : "not submitted",
             },
             {
               label: "Referral code",
