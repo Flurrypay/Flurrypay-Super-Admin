@@ -21,14 +21,14 @@ test.describe("treasury", () => {
     await signIn(page, SUPER_ADMIN, "/treasury");
 
     const table = page.getByRole("table", { name: "Payout accounts" });
-    await expect(table.getByText("Nomba settlement")).toBeVisible();
+    await expect(table.getByText("FalconPay Payout Account")).toBeVisible();
     await table.getByRole("button", { name: "Top up" }).first().click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Fund the settlement account")).toBeVisible();
     // Unmasked on purpose: a masked number cannot be transferred to.
     await expect(dialog.getByText("5119947015")).toBeVisible();
-    await expect(dialog.getByText("Nomba MFB")).toBeVisible();
+    await expect(dialog.getByText("FalconPay Wallet")).toBeVisible();
   });
 
   test("switching the active payout account is super-admin only and needs a code", async ({

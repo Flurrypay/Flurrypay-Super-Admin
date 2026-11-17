@@ -139,10 +139,10 @@ export const TEST_USERS = [
 export const TEST_PAYOUT_PROVIDERS = [
   {
     id: "pp-0001",
-    provider: "nomba",
-    name: "Nomba settlement",
-    bankName: "Nomba MFB",
-    accountName: "FlurryPay Ltd",
+    provider: "falconpay",
+    name: "FalconPay Payout Account",
+    bankName: "FalconPay Wallet",
+    accountName: "FlurryPay Payouts",
     // The top-up instruction, which is why the console shows it unmasked.
     accountNumber: "5119947015",
     bankCode: "000030",
@@ -156,11 +156,11 @@ export const TEST_PAYOUT_PROVIDERS = [
   },
   {
     id: "pp-0002",
-    provider: "falconpay",
-    name: "FalconPay",
-    bankName: "Providus Bank",
+    provider: "opay",
+    name: "OPay Merchant Float",
+    bankName: "OPay",
     accountName: "FlurryPay Ltd",
-    accountNumber: "9930014477",
+    accountNumber: "9552147330",
     bankCode: "000023",
     environment: "live",
     isActive: false,
