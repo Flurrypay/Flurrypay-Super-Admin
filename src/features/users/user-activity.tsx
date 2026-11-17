@@ -66,7 +66,9 @@ export function UserActivity({ userId }: { userId: string }) {
             {log.ipAddress && (
               <span className="font-mono text-xs text-muted-foreground">{log.ipAddress}</span>
             )}
-            {log.location && <span className="text-xs text-muted-foreground">{log.location}</span>}
+            {log.location && log.location !== "Unknown" && (
+              <span className="text-xs text-muted-foreground">{log.location}</span>
+            )}
             {log.deviceInfo && (
               <span className="truncate text-xs text-muted-foreground">{log.deviceInfo}</span>
             )}
