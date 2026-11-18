@@ -92,7 +92,7 @@ export const navigation: NavGroup[] = [
         label: "Reversals",
         href: "/operations/reversals",
         icon: Undo2Icon,
-        access: { superAdmin: true },
+        access: { anyPermission: ["transactions.reverse", "transactions.view"] },
         shortcut: "v",
         description: "Failed transactions that may not have returned the customer's money.",
       },

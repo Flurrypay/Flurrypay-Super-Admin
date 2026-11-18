@@ -16,6 +16,8 @@ import { DateTime } from "@/components/format/date-time";
 import { Freshness } from "@/components/states/freshness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAdmin } from "@/features/auth/admin-context";
+import { hasPermission } from "@/features/auth/permissions";
 import { transactionTypeLabel } from "@/features/transactions/labels";
 import { formatAmount } from "@/lib/format";
 
@@ -29,6 +31,8 @@ const WINDOWS = ["30", "90", "180", "365"] as const;
  * automatically; each reversal is confirmed by a super admin.
  */
 export function ReversalsView() {
+  const admin = useAdmin();
+  const canReverse = hasPermission(admin, "transactions.reverse");
   const queryClient = useQueryClient();
   const [sinceDays, setSinceDays] = useQueryState("since", parseAsInteger.withDefault(90));
   const [pending, setPending] = useState<ReversalCandidate | null>(null);
@@ -120,6 +124,8 @@ export function ReversalsView() {
         <Button
           variant="outline"
           size="sm"
+          disabled={!canReverse}
+          title={canReverse ? undefined : "Requires 'Reverse transactions' permission"}
           onClick={(event) => {
             event.stopPropagation();
             setPending(r);

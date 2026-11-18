@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Reversals" };
 
 export default function ReversalsPage() {
   return (
-    <AccessGuard rule={{ superAdmin: true }}>
+    <AccessGuard rule={{ anyPermission: ["transactions.reverse", "transactions.view"] }}>
       <PageHeader
         title="Reversals"
         description="Failed transactions that may not have returned the customer's money, for review and reversal."

@@ -15,6 +15,7 @@ export const ADMIN_PERMISSIONS = [
   "users.view",
   "users.manage",
   "transactions.view",
+  "transactions.reverse",
   "kyc.review",
   "wallets.moveMoney",
   "wallets.withdraw",
@@ -59,6 +60,13 @@ export const PERMISSION_INFO: Record<AdminPermission, PermissionInfo> = {
     group: "Transactions",
     description: "See the unified transaction ledger, including failures and reversals.",
     risk: "standard",
+    grantable: true,
+  },
+  "transactions.reverse": {
+    label: "Reverse transactions",
+    group: "Transactions",
+    description: "Review failed candidates and reverse uncredited transactions with 2FA step-up.",
+    risk: "elevated",
     grantable: true,
   },
   "kyc.review": {
