@@ -28,6 +28,7 @@ export const AUDIT_ACTIONS: Record<string, ActionInfo> = {
   USER_ACCOUNT_UNSUSPENDED: { label: "Unsuspended user", category: "Users", tone: "neutral" },
   USER_ACCOUNT_FROZEN: { label: "Froze user", category: "Users", tone: "warning" },
   USER_ACCOUNT_UNFROZEN: { label: "Unfroze user", category: "Users", tone: "neutral" },
+  USER_ACCOUNT_UNLOCKED: { label: "Unlocked user PIN", category: "Users", tone: "neutral" },
   USER_ACCOUNT_MANUALLY_VERIFIED: {
     label: "Manually verified user",
     category: "Users",
