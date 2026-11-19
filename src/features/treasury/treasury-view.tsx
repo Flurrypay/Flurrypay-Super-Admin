@@ -77,7 +77,7 @@ export function TreasuryView() {
   const [state, setState] = useQueryStates(
     {
       tab: parseAsStringLiteral(TABS).withDefault("accounts"),
-      range: parseAsStringLiteral([...DATE_PRESETS, "custom"] as const).withDefault("30d"),
+      range: parseAsStringLiteral([...DATE_PRESETS, "custom"] as const),
       from: parseAsString,
       to: parseAsString,
       type: parseAsStringLiteral(EARNING_TYPES),
@@ -88,8 +88,10 @@ export function TreasuryView() {
     },
     { clearOnDefault: true },
   );
-  const range = resolveDateRange({ range: state.range, from: state.from, to: state.to });
-  const rangeKey = state.range === "custom" ? `${state.from}..${state.to}` : state.range;
+  const range = state.range
+    ? resolveDateRange({ range: state.range, from: state.from, to: state.to })
+    : null;
+  const rangeKey = state.range === "custom" ? `${state.from}..${state.to}` : (state.range ?? "all");
   const period = { startDate: range?.from.toISOString(), endDate: range?.to.toISOString() };
 
   const balances = useQuery({
@@ -331,15 +333,7 @@ export function TreasuryView() {
         </TabsContent>
 
         <TabsContent value="movements">
-          <div className="grid gap-3 pt-2">
-            <DateRangeFilter
-              value={{ range: state.range, from: state.from, to: state.to }}
-              onChange={(value) =>
-                void setState({ ...value, range: value.range ?? "30d", page: 1 })
-              }
-            />
-            <MovementsPanel state={state} setState={setState} period={period} rangeKey={rangeKey} />
-          </div>
+          <MovementsPanel state={state} setState={setState} period={period} rangeKey={rangeKey} />
         </TabsContent>
 
         <TabsContent value="earnings">
@@ -347,9 +341,7 @@ export function TreasuryView() {
             <div className="flex flex-wrap items-center gap-2">
               <DateRangeFilter
                 value={{ range: state.range, from: state.from, to: state.to }}
-                onChange={(value) =>
-                  void setState({ ...value, range: value.range ?? "30d", page: 1 })
-                }
+                onChange={(value) => void setState({ ...value, page: 1 })}
               />
               <SelectFilter
                 label="Type"

@@ -366,10 +366,10 @@ export function fetchTreasuryMovements(
     query: {
       page: query.page,
       limit: query.pageSize,
-      direction: query.direction ?? undefined,
-      status: query.status ?? undefined,
-      startDate: query.startDate ?? undefined,
-      endDate: query.endDate ?? undefined,
+      direction: query.direction || undefined,
+      status: query.status || undefined,
+      startDate: query.startDate || undefined,
+      endDate: query.endDate || undefined,
     },
     schema: z
       .object({

@@ -7,6 +7,8 @@ import Link from "next/link";
 import { DataTable } from "@/components/data-table/data-table";
 import { Pagination } from "@/components/data-table/pagination";
 import type { DataColumn } from "@/components/data-table/types";
+import type { DatePreset } from "@/components/filters/date-range";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { SelectFilter } from "@/components/filters/select-filter";
 import { Amount } from "@/components/format/amount";
 import { DateTime } from "@/components/format/date-time";
@@ -36,10 +38,13 @@ interface Props {
     size: number;
     direction: (typeof TRANSFER_DIRECTIONS)[number] | null;
     status: (typeof TRANSFER_STATUSES)[number] | null;
+    range?: DatePreset | "custom" | null;
+    from?: string | null;
+    to?: string | null;
   };
   setState: (patch: Record<string, unknown>) => unknown;
   period: { startDate?: string; endDate?: string };
-  rangeKey: string;
+  rangeKey: string | null;
 }
 
 /**
@@ -76,7 +81,7 @@ export function MovementsPanel({ state, setState, period, rangeKey }: Props) {
     placeholderData: keepPreviousData,
   });
 
-  const filtering = Boolean(state.direction || state.status);
+  const filtering = Boolean(state.direction || state.status || state.range || state.from);
 
   const columns: DataColumn<TreasuryMovement>[] = [
     {
@@ -191,6 +196,10 @@ export function MovementsPanel({ state, setState, period, rangeKey }: Props) {
   return (
     <div className="grid gap-3 pt-2">
       <div className="flex flex-wrap items-center gap-2">
+        <DateRangeFilter
+          value={{ range: state.range ?? null, from: state.from ?? null, to: state.to ?? null }}
+          onChange={(value) => void setState({ ...value, page: 1 })}
+        />
         <SelectFilter
           label="Direction"
           value={state.direction}
@@ -210,7 +219,16 @@ export function MovementsPanel({ state, setState, period, rangeKey }: Props) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void setState({ direction: null, status: null, page: 1 })}
+            onClick={() =>
+              void setState({
+                direction: null,
+                status: null,
+                range: null,
+                from: null,
+                to: null,
+                page: 1,
+              })
+            }
           >
             <FilterXIcon aria-hidden />
             Clear filters
