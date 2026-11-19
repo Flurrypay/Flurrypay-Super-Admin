@@ -18,6 +18,7 @@ describe("permission mirror", () => {
 
   it("never offers company withdrawals to staff", () => {
     expect(PERMISSION_INFO["wallets.withdraw"].grantable).toBe(false);
-    expect(Object.values(PERMISSION_INFO).filter((p) => p.grantable)).toHaveLength(12);
+    expect(PERMISSION_INFO["transactions.reverse"].grantable).toBe(true);
+    expect(Object.values(PERMISSION_INFO).filter((p) => p.grantable)).toHaveLength(13);
   });
 });
