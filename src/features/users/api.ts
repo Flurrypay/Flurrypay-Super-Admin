@@ -25,6 +25,7 @@ const userBase = {
   isBlocked: z.boolean().catch(false),
   isSuspended: z.boolean().catch(false),
   outboundRestricted: z.boolean().catch(false),
+  allowThirdPartyDeposits: z.boolean().catch(false),
   loginLockedUntil: timestamp,
   pinLockedUntil: timestamp,
   loginAttempts: z.number().catch(0),
@@ -465,4 +466,24 @@ export function fetchUserWalletLedger(userId: string, limit = 50, signal?: Abort
       .transform((v) => v.data),
     signal,
   });
+}
+
+export function setUserThirdPartyDeposits(
+  userId: string,
+  allowThirdPartyDeposits: boolean,
+  reason?: string,
+  stepUp?: { twoFACode?: string },
+) {
+  return adminApi.post(
+    `${adminPaths.core}/users/${encodeURIComponent(userId)}/third-party-deposits`,
+    {
+      body: { allowThirdPartyDeposits, reason },
+      headers: stepUp?.twoFACode ? { [STEP_UP_HEADER]: stepUp.twoFACode } : undefined,
+      schema: z.object({
+        success: z.boolean(),
+        message: z.string(),
+        allowThirdPartyDeposits: z.boolean(),
+      }),
+    },
+  );
 }

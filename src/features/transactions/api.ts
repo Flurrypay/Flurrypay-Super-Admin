@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { STEP_UP_HEADER } from "@/features/security/api";
 import { adminApi } from "@/lib/api/admin-client";
 import { adminPaths } from "@/lib/api/admin-paths";
 import { decimal, nullableString, timestamp } from "@/lib/api/schema-helpers";
@@ -29,6 +30,7 @@ export const TRANSACTION_STATUSES = [
   "FAILED",
   "CANCELLED",
   "REVERSED",
+  "ON_HOLD",
 ] as const;
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
@@ -186,6 +188,7 @@ export const transactionSchema = z.object({
     })
     .nullish()
     .catch(null),
+  metadata: z.record(z.string(), z.unknown()).nullish().catch(null),
 });
 export type Transaction = z.output<typeof transactionSchema>;
 
@@ -331,5 +334,23 @@ export function fetchFlagSummary(signal?: AbortSignal) {
         ) as Record<FlagSeverity, number>,
       })),
     signal,
+  });
+}
+
+export function resolveHeldDeposit(
+  reference: string,
+  values: { note?: string; twoFACode?: string; password?: string },
+) {
+  return adminApi.post(`${adminPaths.core}/resolve-held-deposit`, {
+    body: {
+      reference,
+      note: values.note,
+      password: values.password,
+    },
+    headers: values.twoFACode ? { [STEP_UP_HEADER]: values.twoFACode } : undefined,
+    schema: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
   });
 }

@@ -170,6 +170,14 @@ export function UserOverview({ user }: { user: UserDetail }) {
               ),
             },
             {
+              label: "Third-party deposits",
+              value: user.allowThirdPartyDeposits ? (
+                <Badge tone="warning">Allowed (Any account)</Badge>
+              ) : (
+                <Badge tone="neutral">Restricted (Name match only)</Badge>
+              ),
+            },
+            {
               label: "Sign-in lock",
               value: loginLock ? (
                 <>

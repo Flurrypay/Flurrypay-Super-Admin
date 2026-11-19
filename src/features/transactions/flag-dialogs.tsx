@@ -21,6 +21,7 @@ import {
   type FlagReason,
   type FlagSeverity,
   flagTransaction,
+  resolveHeldDeposit,
   type Transaction,
 } from "./api";
 import {
@@ -205,6 +206,89 @@ export function ClearFlagDialog({
           placeholder="e.g. Customer produced the invoice and the recipient is their registered supplier. No further action."
           onChange={(event) => {
             setResolution(event.target.value);
+          }}
+        />
+      </Field>
+    </FormDialog>
+  );
+}
+
+export function ResolveDepositDialog({
+  tx,
+  open,
+  onOpenChange,
+}: {
+  tx: Transaction;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [note, setNote] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () => resolveHeldDeposit(tx.reference ?? tx.id, { note: note.trim() }),
+    onSuccess: () => {
+      toast.success("Deposit resolved and credited to customer wallet");
+      setNote("");
+      onOpenChange(false);
+      void queryClient.invalidateQueries({ queryKey: ["transaction"] });
+      void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      void queryClient.invalidateQueries({ queryKey: ["user", tx.userId] });
+      void queryClient.invalidateQueries({ queryKey: ["audit-log"] });
+    },
+  });
+
+  const meta = tx.metadata ?? {};
+  const senderName = typeof meta.senderName === "string" ? meta.senderName : "Unknown";
+  const expectedName =
+    typeof meta.expectedName === "string"
+      ? meta.expectedName
+      : tx.user
+        ? `${tx.user.firstName} ${tx.user.lastName}`.trim()
+        : "Customer";
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Resolve & Credit Held Deposit"
+      description={
+        <>
+          Release this deposit and credit the customer&apos;s wallet balance. Only proceed after
+          verifying proof of funds / payment receipt submitted by the customer.
+        </>
+      }
+      submitLabel="Resolve & Credit"
+      onSubmit={() => mutation.mutateAsync()}
+    >
+      <div className="mb-3 grid gap-1.5 rounded-md border bg-muted/30 p-3 text-sm">
+        <div>
+          <span className="text-muted-foreground">Amount: </span>
+          <span className="font-semibold text-foreground">
+            ₦{Number(tx.amount).toLocaleString()}
+          </span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Sender Name on Bank Transfer: </span>
+          <span className="font-semibold text-foreground">{senderName}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Customer Registered Name: </span>
+          <span className="font-semibold text-foreground">{expectedName}</span>
+        </div>
+      </div>
+      <Field
+        id="resolve-note"
+        label="Resolution note / Proof verified"
+        hint="Recorded in the audit log and visible on the transaction history."
+      >
+        <Textarea
+          id="resolve-note"
+          rows={3}
+          value={note}
+          placeholder="e.g. Verified customer submitted bank statement matching account number and transfer session ID."
+          onChange={(e) => {
+            setNote(e.target.value);
           }}
         />
       </Field>

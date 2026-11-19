@@ -178,6 +178,16 @@ export const AUDIT_ACTIONS: Record<string, ActionInfo> = {
     category: "Compliance",
     tone: "neutral",
   },
+  RESOLVE_HELD_DEPOSIT: {
+    label: "Resolved held deposit",
+    category: "Money",
+    tone: "success",
+  },
+  UPDATE_USER_DEPOSIT_PERMISSION: {
+    label: "Updated deposit permission",
+    category: "Users",
+    tone: "warning",
+  },
   /*
     Written with adminId "SYSTEM_RISK_ENGINE" when no person triggered it, and
     with the real administrator when their escalation raised the case severity.

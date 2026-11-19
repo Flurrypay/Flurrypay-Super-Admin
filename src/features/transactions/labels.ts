@@ -4,6 +4,7 @@ import {
   CircleXIcon,
   ClockIcon,
   LoaderCircleIcon,
+  PauseCircleIcon,
   Undo2Icon,
 } from "lucide-react";
 
@@ -49,6 +50,12 @@ export const TRANSACTION_STATUS: StatusMap<TransactionStatus> = {
     tone: "warning",
     icon: Undo2Icon,
     description: "Funds were returned to the customer.",
+  },
+  ON_HOLD: {
+    label: "On Hold",
+    tone: "warning",
+    icon: PauseCircleIcon,
+    description: "Deposit held pending proof of funds or name verification.",
   },
 };
 

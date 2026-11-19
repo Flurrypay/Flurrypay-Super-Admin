@@ -6,6 +6,8 @@ import {
   ChevronDownIcon,
   PauseCircleIcon,
   PlayCircleIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
   ShieldIcon,
   SnowflakeIcon,
   SunIcon,
@@ -31,6 +33,7 @@ import { useHasPermission } from "@/features/auth/admin-context";
 import {
   blockUser,
   freezeUser,
+  setUserThirdPartyDeposits,
   suspendUser,
   unblockUser,
   unfreezeUser,
@@ -39,7 +42,15 @@ import {
 } from "./api";
 import { userDisplayName } from "./queries";
 
-type ActionId = "block" | "unblock" | "suspend" | "unsuspend" | "freeze" | "unfreeze";
+type ActionId =
+  | "block"
+  | "unblock"
+  | "suspend"
+  | "unsuspend"
+  | "freeze"
+  | "unfreeze"
+  | "allowThirdParty"
+  | "restrictThirdParty";
 
 interface ActionSpec {
   label: string;
@@ -125,6 +136,38 @@ const ACTIONS: Record<ActionId, ActionSpec> = {
     run: (id, { twoFACode }) => unfreezeUser(id, { twoFACode: twoFACode ?? "" }),
     done: "Outbound funds unfrozen",
   },
+  allowThirdParty: {
+    label: "Allow third-party deposits",
+    icon: ShieldCheckIcon,
+    impact:
+      "The customer can fund their wallet from any bank account, even if the sender name differs from their legal name.",
+    confirmLabel: "Allow third-party",
+    tone: "default",
+    reason: {
+      required: false,
+      minLength: 3,
+      hint: "Optional internal note for granting third-party funding permission.",
+    },
+    run: (id, { reason, twoFACode }) =>
+      setUserThirdPartyDeposits(id, true, reason, { twoFACode: twoFACode ?? "" }),
+    done: "Third-party deposits allowed",
+  },
+  restrictThirdParty: {
+    label: "Restrict deposits to matching name",
+    icon: ShieldAlertIcon,
+    impact:
+      "Inbound deposits will only be accepted from bank accounts in the customer's legal name. Mismatched deposits will be held.",
+    confirmLabel: "Restrict deposits",
+    tone: "default",
+    reason: {
+      required: false,
+      minLength: 3,
+      hint: "Optional reason for enforcing strict name matching.",
+    },
+    run: (id, { reason, twoFACode }) =>
+      setUserThirdPartyDeposits(id, false, reason, { twoFACode: twoFACode ?? "" }),
+    done: "Deposits restricted to matching name",
+  },
 };
 
 /** Account controls for one customer. Every action is confirmed and recorded by the API's audit log. */
@@ -152,6 +195,7 @@ export function UserActions({ user }: { user: UserDetail }) {
     user.isBlocked ? "unblock" : "block",
     user.isSuspended ? "unsuspend" : "suspend",
     user.outboundRestricted ? "unfreeze" : "freeze",
+    user.allowThirdPartyDeposits ? "restrictThirdParty" : "allowThirdParty",
   ];
   const spec = pending ? ACTIONS[pending] : null;
 

@@ -1,6 +1,13 @@
 "use client";
 
-import { FlagIcon, ScaleIcon, TriangleAlertIcon, Undo2Icon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  FlagIcon,
+  ScaleIcon,
+  ShieldAlertIcon,
+  TriangleAlertIcon,
+  Undo2Icon,
+} from "lucide-react";
 import Link from "next/link";
 
 import { DetailList, DetailSection } from "@/components/detail/detail-list";
@@ -92,6 +99,50 @@ export function TransactionDetails({
           </AlertDescription>
         </Alert>
       )}
+
+      {(() => {
+        const meta = tx.metadata ?? {};
+        const isHold = tx.status === "ON_HOLD" || meta.holdReason === "NAME_MISMATCH";
+        if (!isHold) return null;
+
+        const isResolved = Boolean(meta.resolved);
+        const senderName = typeof meta.senderName === "string" ? meta.senderName : "Unknown";
+        const expectedName =
+          typeof meta.expectedName === "string" ? meta.expectedName : customer || "Not recorded";
+        const resolvedAt = typeof meta.resolvedAt === "string" ? meta.resolvedAt : null;
+        const resolutionNote = typeof meta.resolutionNote === "string" ? meta.resolutionNote : null;
+
+        return (
+          <Alert tone={isResolved ? "neutral" : "warning"}>
+            {isResolved ? <CheckCircle2Icon aria-hidden /> : <ShieldAlertIcon aria-hidden />}
+            <AlertTitle className="flex flex-wrap items-center gap-2">
+              {isResolved
+                ? "Held deposit resolved & credited"
+                : "Inbound Deposit On Hold — Sender Name Mismatch"}
+            </AlertTitle>
+            <AlertDescription className="grid gap-1">
+              <div>
+                <span>Sender name on transfer: </span>
+                <strong className="font-semibold text-foreground">{senderName}</strong>
+                <span> · Registered customer name: </span>
+                <strong className="font-semibold text-foreground">{expectedName}</strong>
+              </div>
+              {isResolved ? (
+                <span className="text-xs text-muted-foreground">
+                  Resolved by admin on <DateTime value={resolvedAt} />
+                  {resolutionNote && ` · Note: ${resolutionNote}`}
+                </span>
+              ) : (
+                <span className="text-xs">
+                  Inbound deposit name did not match the customer&apos;s registered legal name. The
+                  wallet balance was NOT credited. Check proof of payment before clicking
+                  &apos;Resolve &amp; Credit&apos;.
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       <DetailSection title="Summary">
         <DetailList
