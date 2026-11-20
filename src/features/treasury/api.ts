@@ -46,6 +46,7 @@ const breakdownSchema = z.object({
   cryptoBuyCommissions: decimal,
   cryptoSaleCommissions: decimal,
   swapFees: decimal,
+  cryptoSendFees: decimal,
   airtimeCommissions: decimal,
   dataCommissions: decimal,
   billCommissions: decimal,
@@ -88,7 +89,27 @@ export const earningSchema = z.object({
 });
 export type Earning = z.output<typeof earningSchema>;
 
-export const EARNING_TYPES = ["buy", "sell", "swap", "airtime", "data"] as const;
+export const EARNING_TYPES = [
+  "buy",
+  "sell",
+  "swap",
+  "send",
+  "withdraw",
+  "airtime",
+  "data",
+  "bills",
+] as const;
+
+export const EARNING_TYPE_LABELS: Record<(typeof EARNING_TYPES)[number], string> = {
+  buy: "Crypto Buy",
+  sell: "Crypto Sell",
+  swap: "Swap",
+  send: "Crypto Send",
+  withdraw: "Withdrawal",
+  airtime: "Airtime",
+  data: "Data",
+  bills: "Bills",
+};
 
 export function fetchEarnings(
   query: EarningsRange & { page: number; pageSize: number; transactionType?: string | null },

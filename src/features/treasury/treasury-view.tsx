@@ -33,6 +33,7 @@ import { AccountsPanel } from "./accounts-panel";
 import {
   type CryptoReserve,
   type Earning,
+  EARNING_TYPE_LABELS,
   EARNING_TYPES,
   type EarningsBreakdown,
   fetchCryptoReserves,
@@ -51,8 +52,11 @@ const BREAKDOWN_ROWS: { key: keyof EarningsBreakdown; label: string }[] = [
   { key: "cryptoBuyCommissions", label: "Crypto buy commissions" },
   { key: "cryptoSaleCommissions", label: "Crypto sale commissions" },
   { key: "swapFees", label: "Swap fees" },
+  { key: "cryptoSendFees", label: "Crypto send fees" },
+  { key: "transferFees", label: "Withdrawal service charges" },
   { key: "airtimeCommissions", label: "Airtime commissions" },
   { key: "dataCommissions", label: "Data commissions" },
+  { key: "billCommissions", label: "Bill commissions" },
 ];
 
 /**
@@ -346,7 +350,10 @@ export function TreasuryView() {
               <SelectFilter
                 label="Type"
                 value={state.type}
-                options={EARNING_TYPES.map((value) => ({ value, label: humanizeEnum(value) }))}
+                options={EARNING_TYPES.map((value) => ({
+                  value,
+                  label: EARNING_TYPE_LABELS[value] || humanizeEnum(value),
+                }))}
                 onChange={(type) => void setState({ type, page: 1 })}
               />
             </div>
@@ -375,6 +382,18 @@ export function TreasuryView() {
                         </dd>
                       </div>
                     ))}
+                    {Number(breakdown.data.otherEarnings ?? 0) > 0 && (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Other earnings</dt>
+                        <dd>
+                          <Amount
+                            value={breakdown.data.otherEarnings}
+                            currency="NGN"
+                            className="font-normal"
+                          />
+                        </dd>
+                      </div>
+                    )}
                     <div className="flex justify-between gap-3 border-t pt-2 font-medium">
                       <dt className="flex items-center gap-1.5">
                         <CoinsIcon className="size-4 text-muted-foreground" aria-hidden />
