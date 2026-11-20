@@ -50,7 +50,7 @@ export function resolveDateRange(
   const today = toZonedDateString(now, timeZone);
   const dayRange = (fromDay: string, toDay: string): ResolvedRange => ({
     from: startOfZonedDay(fromDay, timeZone),
-    to: endOfZonedDay(toDay, timeZone),
+    to: toDay === today ? now : endOfZonedDay(toDay, timeZone),
   });
 
   switch (value.range) {
