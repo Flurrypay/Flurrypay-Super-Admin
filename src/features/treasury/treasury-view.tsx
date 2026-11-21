@@ -96,7 +96,12 @@ export function TreasuryView() {
     ? resolveDateRange({ range: state.range, from: state.from, to: state.to })
     : null;
   const rangeKey = state.range === "custom" ? `${state.from}..${state.to}` : (state.range ?? "all");
-  const period = { startDate: range?.from.toISOString(), endDate: range?.to.toISOString() };
+  const isPastClosedRange =
+    state.range === "yesterday" || state.range === "last-month" || state.range === "custom";
+  const period = {
+    startDate: range?.from.toISOString(),
+    endDate: isPastClosedRange ? range?.to.toISOString() : undefined,
+  };
 
   const balances = useQuery({
     queryKey: ["treasury", "balances"],
@@ -244,6 +249,8 @@ export function TreasuryView() {
             onRefresh={() => {
               void balances.refetch();
               void reserves.refetch();
+              void breakdown.refetch();
+              void earnings.refetch();
             }}
           />
         </div>
@@ -356,10 +363,20 @@ export function TreasuryView() {
                 }))}
                 onChange={(type) => void setState({ type, page: 1 })}
               />
+              <div className="ml-auto">
+                <Freshness
+                  updatedAt={earnings.dataUpdatedAt}
+                  isFetching={earnings.isFetching || breakdown.isFetching}
+                  onRefresh={() => {
+                    void breakdown.refetch();
+                    void earnings.refetch();
+                  }}
+                />
+              </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
-              <div className="rounded-md border bg-card p-4">
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
+              <div className="h-fit self-start rounded-md border bg-card p-4">
                 {breakdown.isPending ? (
                   <Skeleton className="h-40" />
                 ) : breakdown.isError ? (
