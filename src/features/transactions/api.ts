@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { STEP_UP_HEADER } from "@/features/security/api";
 import { adminApi } from "@/lib/api/admin-client";
 import { adminPaths } from "@/lib/api/admin-paths";
 import { decimal, nullableString, timestamp } from "@/lib/api/schema-helpers";
@@ -350,7 +349,6 @@ export function resolveHeldDeposit(
       twoFACode: values.twoFACode,
     },
     {
-      headers: values.twoFACode ? { [STEP_UP_HEADER]: values.twoFACode } : undefined,
       schema: z.object({
         success: z.boolean(),
         message: z.string(),
