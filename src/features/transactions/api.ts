@@ -346,6 +346,7 @@ export function resolveHeldDeposit(
       reference,
       note: values.note,
       password: values.password,
+      twoFACode: values.twoFACode,
     },
     headers: values.twoFACode ? { [STEP_UP_HEADER]: values.twoFACode } : undefined,
     schema: z.object({

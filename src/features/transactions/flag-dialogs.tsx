@@ -4,7 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Field, FormDialog } from "@/components/confirm/form-dialog";
+import { Field, FormDialog, TwoFactorField } from "@/components/confirm/form-dialog";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -13,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useAdmin } from "@/features/auth/admin-context";
 
 import {
   clearTransactionFlag,
@@ -223,13 +225,23 @@ export function ResolveDepositDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const admin = useAdmin();
   const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [twoFACode, setTwoFACode] = useState("");
 
   const mutation = useMutation({
-    mutationFn: () => resolveHeldDeposit(tx.reference ?? tx.id, { note: note.trim() }),
+    mutationFn: () =>
+      resolveHeldDeposit(tx.reference ?? tx.id, {
+        note: note.trim(),
+        password,
+        twoFACode: twoFACode.trim(),
+      }),
     onSuccess: () => {
       toast.success("Deposit resolved and credited to customer wallet");
       setNote("");
+      setPassword("");
+      setTwoFACode("");
       onOpenChange(false);
       void queryClient.invalidateQueries({ queryKey: ["transaction"] });
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
@@ -250,7 +262,13 @@ export function ResolveDepositDialog({
   return (
     <FormDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        if (!next) {
+          setPassword("");
+          setTwoFACode("");
+        }
+        onOpenChange(next);
+      }}
       title="Resolve & Credit Held Deposit"
       description={
         <>
@@ -259,6 +277,18 @@ export function ResolveDepositDialog({
         </>
       }
       submitLabel="Resolve & Credit"
+      validate={() => {
+        if (!note.trim()) {
+          return "Please provide a resolution note (e.g. proof of payment verified).";
+        }
+        if (!password) {
+          return "Your account password is required to authorise this transfer.";
+        }
+        if (admin.hasActivated2FA && !/^\d{6}$/.test(twoFACode.trim())) {
+          return "Enter the 6-digit code from your authenticator app.";
+        }
+        return null;
+      }}
       onSubmit={() => mutation.mutateAsync()}
     >
       <div className="mb-3 grid gap-1.5 rounded-md border bg-muted/30 p-3 text-sm">
@@ -292,6 +322,25 @@ export function ResolveDepositDialog({
           }}
         />
       </Field>
+      <Field
+        id="resolve-password"
+        label="Account password"
+        hint="Enter your Super Admin account password to authorise releasing this deposit."
+      >
+        <Input
+          id="resolve-password"
+          type="password"
+          autoComplete="current-password"
+          placeholder="Enter your account password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+          }}
+        />
+      </Field>
+      {admin.hasActivated2FA && (
+        <TwoFactorField id="resolve-2fa" value={twoFACode} onChange={setTwoFACode} />
+      )}
     </FormDialog>
   );
 }

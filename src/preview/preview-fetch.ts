@@ -1432,6 +1432,15 @@ route("POST", `${core}/reverse-transaction`, (req) => {
     message: `₦${Number(candidate.amount).toLocaleString()} returned to the customer.`,
   });
 });
+route("POST", `${core}/resolve-held-deposit`, (req) => {
+  const ref = typeof req.body.reference === "string" ? req.body.reference : "";
+  const note = typeof req.body.note === "string" ? req.body.note : "Deposit verified and released";
+  audit("HELD_DEPOSIT_RESOLVED", { reference: ref }, { type: "transaction", id: ref }, note);
+  return json({
+    success: true,
+    message: "Deposit resolved and credited to customer wallet successfully.",
+  });
+});
 
 // Compliance
 const cmp = adminPaths.compliance;
