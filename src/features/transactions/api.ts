@@ -341,17 +341,20 @@ export function resolveHeldDeposit(
   reference: string,
   values: { note?: string; twoFACode?: string; password?: string },
 ) {
-  return adminApi.post(`${adminPaths.core}/resolve-held-deposit`, {
-    body: {
+  return adminApi.post(
+    `${adminPaths.core}/resolve-held-deposit`,
+    {
       reference,
       note: values.note,
       password: values.password,
       twoFACode: values.twoFACode,
     },
-    headers: values.twoFACode ? { [STEP_UP_HEADER]: values.twoFACode } : undefined,
-    schema: z.object({
-      success: z.boolean(),
-      message: z.string(),
-    }),
-  });
+    {
+      headers: values.twoFACode ? { [STEP_UP_HEADER]: values.twoFACode } : undefined,
+      schema: z.object({
+        success: z.boolean(),
+        message: z.string(),
+      }),
+    },
+  );
 }
