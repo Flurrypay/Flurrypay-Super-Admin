@@ -71,7 +71,10 @@ const RESOLUTION: Record<
 export function StrandedView() {
   const admin = useAdmin();
   const queryClient = useQueryClient();
-  const canResolve = hasPermission(admin, "wallets.withdraw");
+  const canResolve =
+    hasPermission(admin, "wallets.withdraw") ||
+    hasPermission(admin, "transactions.reverse") ||
+    admin?.role === "executive";
   const canViewUsers = hasPermission(admin, "users.view");
   const [includeResolved, setIncludeResolved] = useState(false);
   const [pending, setPending] = useState<{ row: StrandedTransfer; action: Resolution } | null>(
