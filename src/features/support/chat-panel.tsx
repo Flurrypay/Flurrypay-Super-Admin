@@ -27,9 +27,18 @@ import {
   replyToChat,
 } from "./api";
 
-/** How often the open conversation re-reads. The API has no socket for the console yet. */
-const CONVERSATION_POLL_MS = 15_000;
-const ROOMS_POLL_MS = 30_000;
+/** How often the open conversation re-reads for live message delivery. */
+const CONVERSATION_POLL_MS = 3_000;
+const ROOMS_POLL_MS = 8_000;
+
+function isImageUrl(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  const trimmed = text.trim();
+  return (
+    (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:image/")) &&
+    (/\.(jpeg|jpg|gif|png|webp)($|\?)/i.test(trimmed) || trimmed.includes("res.cloudinary.com") || trimmed.startsWith("data:image/"))
+  );
+}
 
 interface Props {
   state: { room: string | null };
@@ -310,7 +319,23 @@ function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean 
                       thing a support thread cannot be ambiguous about.
                     */}
                     <p className="sr-only">{mine ? "From support" : `From ${customerName}`}</p>
-                    <p className="whitespace-pre-wrap">{message.message}</p>
+                    {isImageUrl(message.message) ? (
+                      <div className="space-y-1 my-1">
+                        <a href={message.message} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded border border-white/20">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={message.message}
+                            alt="Chat attachment"
+                            className="max-h-60 max-w-full rounded object-contain bg-black/10"
+                          />
+                        </a>
+                        <p className={cn("text-[11px] underline", mine ? "text-primary-foreground/80" : "text-primary")}>
+                          View full image ↗
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{message.message}</p>
+                    )}
                     <p
                       className={cn(
                         "mt-1 text-xs",

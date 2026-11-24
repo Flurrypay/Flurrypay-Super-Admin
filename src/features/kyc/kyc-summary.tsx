@@ -55,19 +55,7 @@ export function KycSummary({ profile, customerName }: KycSummaryProps) {
       twoFACode: string;
     }) => {
       if (kind === "approve") {
-        if (level === 3 && profile.level3.canApprove) {
-          return approveKycLevel(profile.userId, level, twoFACode);
-        }
-        const defaultLimits: Record<KycLevel, number> = { 1: 200_000, 2: 1_000_000, 3: 50_000_000 };
-        const currentDailyLimit = Number(profile.dailyWithdrawalLimit || 0);
-        const dailyLimit = Math.max(currentDailyLimit, defaultLimits[level]);
-        return overrideUserLimit({
-          userId: profile.userId,
-          dailyLimit,
-          kycLevel: level,
-          note: reason || `Level ${level} verification approved by Super Admin`,
-          twoFACode,
-        });
+        return approveKycLevel(profile.userId, level, twoFACode);
       }
       return rejectKycLevel(profile.userId, level, reason, twoFACode);
     },
