@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessagesSquareIcon, SendIcon, UserIcon } from "lucide-react";
+import { CalendarIcon, MessagesSquareIcon, SendIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useHasPermission } from "@/features/auth/admin-context";
+import { UpdateDobDialog } from "@/features/users/update-dob-dialog";
 import { getUserMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 
@@ -251,12 +252,23 @@ function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean 
           {customer && <p className="text-xs text-muted-foreground">{customer.email}</p>}
         </div>
         {customer && (
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/users/${customer.id}`}>
-              <UserIcon aria-hidden />
-              Open customer
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <UpdateDobDialog
+              user={customer}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <CalendarIcon aria-hidden className="mr-1.5 h-3.5 w-3.5" />
+                  Update DOB
+                </Button>
+              }
+            />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/users/${customer.id}`}>
+                <UserIcon aria-hidden className="mr-1.5 h-3.5 w-3.5" />
+                Open customer
+              </Link>
+            </Button>
+          </div>
         )}
       </header>
 

@@ -487,3 +487,11 @@ export function setUserThirdPartyDeposits(
     },
   );
 }
+
+/** Update customer date of birth (by admin, staff, or executive) */
+export function updateUserDateOfBirth(userId: string, dateOfBirth: string, reason?: string) {
+  return adminApi.post(
+    `${adminPaths.core}/users/${encodeURIComponent(userId)}/dob`,
+    { dateOfBirth, reason },
+  );
+}

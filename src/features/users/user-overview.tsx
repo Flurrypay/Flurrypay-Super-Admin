@@ -9,6 +9,7 @@ import { Identifier } from "@/components/format/identifier";
 import { Badge } from "@/components/ui/badge";
 
 import type { UserDetail } from "./api";
+import { UpdateDobDialog } from "./update-dob-dialog";
 
 function Check({ value, label }: { value: boolean; label: string }) {
   return (
@@ -43,7 +44,16 @@ export function UserOverview({ user }: { user: UserDetail }) {
             { label: "Country", value: user.country },
             {
               label: "Date of birth",
-              value: user.dateOfBirth ? <DateTime value={user.dateOfBirth} format="date" /> : null,
+              value: (
+                <div className="flex items-center gap-2">
+                  {user.dateOfBirth ? (
+                    <DateTime value={user.dateOfBirth} format="date" />
+                  ) : (
+                    <span className="text-muted-foreground italic">Not set</span>
+                  )}
+                  <UpdateDobDialog user={user} />
+                </div>
+              ),
             },
             { label: "Joined", value: <DateTime value={user.createdAt} format="date" /> },
             { label: "User ID", value: <Identifier value={user.id} label="user ID" /> },

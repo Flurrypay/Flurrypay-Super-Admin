@@ -233,6 +233,7 @@ const conversationSchema = z.object({
       firstName: z.string().catch(""),
       lastName: z.string().catch(""),
       email: z.string().catch(""),
+      dateOfBirth: nullableString,
     })
     .nullish()
     .catch(null),
