@@ -254,9 +254,13 @@ export function AdministratorDetailPage({ adminId }: { adminId: string }) {
           isSelf ? (
             <p className="text-xs text-muted-foreground">You can&apos;t change your own access.</p>
           ) : !isSuperAdmin(me) ? (
-            <p className="text-xs text-muted-foreground">Only the primary Super Admin can manage administrator access.</p>
+            <p className="text-xs text-muted-foreground">
+              Only the primary Super Admin can manage administrator access.
+            </p>
           ) : isSuper ? (
-            <p className="text-xs text-muted-foreground">The primary Super Admin cannot be modified or removed.</p>
+            <p className="text-xs text-muted-foreground">
+              The primary Super Admin cannot be modified or removed.
+            </p>
           ) : (
             <>
               <Button

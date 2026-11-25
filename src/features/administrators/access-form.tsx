@@ -217,7 +217,10 @@ export function AccessForm({
             {isSelectedAll && existingFullAccessAdmin && (
               <Alert tone="warning">
                 <AlertDescription className="text-xs">
-                  <strong>Policy Restriction:</strong> Only one secondary administrator is permitted to hold all operational permissions ({existingFullAccessAdmin.email} currently holds full permissions). Please assign specific restricted permissions to this staff member.
+                  <strong>Policy Restriction:</strong> Only one secondary administrator is permitted
+                  to hold all operational permissions ({existingFullAccessAdmin.email} currently
+                  holds full permissions). Please assign specific restricted permissions to this
+                  staff member.
                 </AlertDescription>
               </Alert>
             )}

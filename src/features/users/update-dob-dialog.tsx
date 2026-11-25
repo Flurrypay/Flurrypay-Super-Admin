@@ -49,7 +49,8 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Customer";
+  const fullName =
+    `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Customer";
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -101,8 +102,9 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
               Update Date of Birth
             </DialogTitle>
             <DialogDescription>
-              Update the customer&apos;s date of birth for <span className="font-semibold text-foreground">{fullName}</span>.
-              This will update both their account profile and verified KYC record.
+              Update the customer&apos;s date of birth for{" "}
+              <span className="font-semibold text-foreground">{fullName}</span>. This will update
+              both their account profile and verified KYC record.
             </DialogDescription>
           </DialogHeader>
 
@@ -129,7 +131,7 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
 
             <div className="space-y-1.5">
               <Label htmlFor="dob-reason" className="text-xs font-semibold">
-                Reason / Note <span className="text-muted-foreground font-normal">(Optional)</span>
+                Reason / Note <span className="font-normal text-muted-foreground">(Optional)</span>
               </Label>
               <Input
                 id="dob-reason"
@@ -171,4 +173,3 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
     </Dialog>
   );
 }
-

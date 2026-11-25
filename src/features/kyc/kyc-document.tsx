@@ -89,7 +89,7 @@ export function KycDocument({ location, label }: { location: string | null; labe
           <DialogTrigger asChild>
             <button
               type="button"
-              className="group relative block w-fit max-w-full cursor-zoom-in overflow-hidden rounded-md border bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-all hover:border-primary/50 hover:shadow-md"
+              className="group relative block w-fit max-w-full cursor-zoom-in overflow-hidden rounded-md border bg-muted transition-all hover:border-primary/50 hover:shadow-md focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none"
               title={`Click to view ${label} in fullscreen`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL from the API */}
@@ -110,15 +110,15 @@ export function KycDocument({ location, label }: { location: string | null; labe
               </div>
             </button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-5xl max-w-[96vw] max-h-[92vh] flex flex-col gap-3 p-4 bg-background/95 backdrop-blur-md">
-            <DialogHeader className="flex flex-row items-center justify-between pr-8 border-b pb-2">
+          <DialogContent className="flex max-h-[92vh] max-w-[96vw] flex-col gap-3 bg-background/95 p-4 backdrop-blur-md sm:max-w-5xl">
+            <DialogHeader className="flex flex-row items-center justify-between border-b pr-8 pb-2">
               <DialogTitle className="text-base font-semibold">{label}</DialogTitle>
               {url.data && (
                 <a
                   href={url.data}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-primary"
                   title="Open in new window as fallback"
                 >
                   <ExternalLinkIcon className="size-3.5" aria-hidden />
@@ -126,7 +126,7 @@ export function KycDocument({ location, label }: { location: string | null; labe
                 </a>
               )}
             </DialogHeader>
-            <div className="flex flex-1 items-center justify-center overflow-auto rounded-md bg-muted/20 p-2 min-h-0">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md bg-muted/20 p-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={url.data}
