@@ -1,7 +1,15 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarIcon, ImageIcon, MessagesSquareIcon, SendIcon, UserIcon } from "lucide-react";
+import {
+  CalendarIcon,
+  ExternalLinkIcon,
+  ImageIcon,
+  MessagesSquareIcon,
+  SendIcon,
+  UserIcon,
+  ZoomInIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -12,6 +20,13 @@ import { ErrorState } from "@/components/states/error-state";
 import { Freshness } from "@/components/states/freshness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { UpdateDobDialog } from "@/features/users/update-dob-dialog";
@@ -327,19 +342,64 @@ function Conversation({ roomId }: { roomId: string }) {
                     */}
                     <p className="sr-only">{mine ? "From support" : `From ${customerName}`}</p>
                     {isImageUrl(message.message) ? (
-                      <div className="space-y-1 my-1">
-                        <a href={message.message} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded border border-white/20">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={message.message}
-                            alt="Chat attachment"
-                            className="max-h-60 max-w-full rounded object-contain bg-black/10"
-                          />
-                        </a>
-                        <p className={cn("text-[11px] underline", mine ? "text-primary-foreground/80" : "text-primary")}>
-                          View full image ↗
-                        </p>
-                      </div>
+                      <Dialog>
+                        <div className="space-y-1 my-1">
+                          <DialogTrigger asChild>
+                            <button
+                              type="button"
+                              className="group relative block overflow-hidden rounded border border-white/20 cursor-zoom-in text-left focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              title="Click to view full image"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={message.message}
+                                alt="Chat attachment"
+                                className="max-h-60 max-w-full rounded object-contain bg-black/10 transition-transform duration-200 group-hover:scale-[1.02]"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/25 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                                <span className="inline-flex items-center gap-1 rounded bg-black/75 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm">
+                                  <ZoomInIcon className="size-3" aria-hidden />
+                                  View
+                                </span>
+                              </div>
+                            </button>
+                          </DialogTrigger>
+                          <DialogTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                "text-[11px] underline cursor-pointer inline-block",
+                                mine ? "text-primary-foreground/80 hover:text-white" : "text-primary hover:underline",
+                              )}
+                            >
+                              View full image
+                            </button>
+                          </DialogTrigger>
+                        </div>
+                        <DialogContent className="sm:max-w-4xl max-w-[96vw] max-h-[92vh] flex flex-col gap-3 p-4 bg-background/95 backdrop-blur-md">
+                          <DialogHeader className="flex flex-row items-center justify-between pr-8 border-b pb-2">
+                            <DialogTitle className="text-base font-semibold">Image attachment</DialogTitle>
+                            <a
+                              href={message.message}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                              title="Open original file in new tab"
+                            >
+                              <ExternalLinkIcon className="size-3.5" aria-hidden />
+                              Open original
+                            </a>
+                          </DialogHeader>
+                          <div className="flex flex-1 items-center justify-center overflow-auto rounded-md bg-muted/20 p-2 min-h-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={message.message}
+                              alt="Chat attachment full size"
+                              className="max-h-[78vh] max-w-full rounded object-contain shadow-md"
+                            />
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     ) : (
                       <p className="whitespace-pre-wrap">{message.message}</p>
                     )}
