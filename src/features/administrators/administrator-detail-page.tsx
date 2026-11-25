@@ -563,7 +563,7 @@ function EditAccessDialog({
               Changes take effect on their next request and are recorded in the audit log.
             </DialogDescription>
           </DialogHeader>
-          <AccessForm value={access} onChange={setAccess} />
+          <AccessForm value={access} onChange={setAccess} adminId={admin.id} />
           <div className="grid max-w-56 gap-1.5">
             <Label htmlFor="edit-access-2fa">Your authenticator code</Label>
             <Input

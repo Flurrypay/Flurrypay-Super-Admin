@@ -23,7 +23,8 @@ import {
   ROLE_INFO,
 } from "@/features/auth/permissions";
 
-import { rolesQuery } from "./labels";
+import { rolesQuery, administratorsQueryKey } from "./labels";
+import { fetchAdministrators } from "./api";
 import { PermissionPicker } from "./permission-picker";
 
 export interface AccessValue {
@@ -46,13 +47,28 @@ function grantable(permissions: readonly string[]): AdminPermission[] {
 export function AccessForm({
   value,
   onChange,
+  adminId,
 }: {
   value: AccessValue;
   onChange: (value: AccessValue) => void;
+  adminId?: string;
 }) {
   const isSuper = value.role === "superAdmin";
   const roles = useQuery(rolesQuery);
+  const admins = useQuery({
+    queryKey: administratorsQueryKey,
+    queryFn: ({ signal }) => fetchAdministrators(signal),
+  });
   const customRole = roles.data?.find((r) => r.id === value.customRoleId);
+
+  const allGrantable = grantable(ADMIN_PERMISSIONS);
+  const existingFullAccessAdmin = admins.data?.find(
+    (a) =>
+      a.id !== adminId &&
+      a.role !== "superAdmin" &&
+      allGrantable.every((p) => (a.permissions || []).includes(p))
+  );
+  const isSelectedAll = allGrantable.every((p) => value.permissions.includes(p));
 
   return (
     <div className="grid gap-4">
@@ -160,8 +176,15 @@ export function AccessForm({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 text-xs text-primary hover:text-primary/80"
+                    disabled={Boolean(existingFullAccessAdmin)}
+                    className="h-7 text-xs text-primary hover:text-primary/80 disabled:opacity-50"
+                    title={
+                      existingFullAccessAdmin
+                        ? `Only one secondary administrator is permitted to hold all permissions (${existingFullAccessAdmin.email} currently holds full permissions).`
+                        : "Grant all operational permissions"
+                    }
                     onClick={() => {
+                      if (existingFullAccessAdmin) return;
                       onChange({
                         ...value,
                         permissions: grantable(ADMIN_PERMISSIONS),
@@ -191,6 +214,13 @@ export function AccessForm({
                 </div>
               )}
             </div>
+            {isSelectedAll && existingFullAccessAdmin && (
+              <Alert tone="warning">
+                <AlertDescription className="text-xs">
+                  <strong>Policy Restriction:</strong> Only one secondary administrator is permitted to hold all operational permissions ({existingFullAccessAdmin.email} currently holds full permissions). Please assign specific restricted permissions to this staff member.
+                </AlertDescription>
+              </Alert>
+            )}
             <PermissionPicker
               value={value.permissions}
               disabled={Boolean(customRole)}
