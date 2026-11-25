@@ -429,7 +429,9 @@ function Conversation({ roomId }: { roomId: string }) {
               className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary"
               placeholder="Paste photo URL (https://...) to send photo to customer..."
               value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
+              onChange={(e) => {
+                setImageUrl(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && imageUrl.trim()) {
                   e.preventDefault();
@@ -455,7 +457,9 @@ function Conversation({ roomId }: { roomId: string }) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowImageInput(false)}
+              onClick={() => {
+                setShowImageInput(false);
+              }}
             >
               Cancel
             </Button>
@@ -488,7 +492,9 @@ function Conversation({ roomId }: { roomId: string }) {
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs"
-                onClick={() => setShowImageInput((prev) => !prev)}
+                onClick={() => {
+                  setShowImageInput((prev) => !prev);
+                }}
               >
                 <ImageIcon aria-hidden className="mr-1 h-3.5 w-3.5" />
                 Attach Photo

@@ -51,7 +51,7 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
 
   const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Customer";
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!dateOfBirth.trim()) {
       toast.error("Please enter or select a valid date of birth");
@@ -116,7 +116,9 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
                 type="date"
                 max={new Date().toISOString().slice(0, 10)}
                 value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
+                onChange={(e) => {
+                  setDateOfBirth(e.target.value);
+                }}
                 required
                 className="w-full"
               />
@@ -133,7 +135,9 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
                 id="dob-reason"
                 placeholder="e.g. Corrected date per live chat support request"
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                onChange={(e) => {
+                  setReason(e.target.value);
+                }}
                 className="w-full text-xs"
               />
             </div>
@@ -144,7 +148,9 @@ export function UpdateDobDialog({ user, trigger }: UpdateDobDialogProps) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                setOpen(false);
+              }}
               disabled={isSubmitting}
             >
               Cancel

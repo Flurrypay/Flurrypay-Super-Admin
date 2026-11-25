@@ -23,8 +23,8 @@ import {
   ROLE_INFO,
 } from "@/features/auth/permissions";
 
-import { rolesQuery, administratorsQueryKey } from "./labels";
 import { fetchAdministrators } from "./api";
+import { administratorsQueryKey, rolesQuery } from "./labels";
 import { PermissionPicker } from "./permission-picker";
 
 export interface AccessValue {
@@ -66,7 +66,7 @@ export function AccessForm({
     (a) =>
       a.id !== adminId &&
       a.role !== "superAdmin" &&
-      allGrantable.every((p) => (a.permissions || []).includes(p))
+      allGrantable.every((p) => a.permissions.includes(p)),
   );
   const isSelectedAll = allGrantable.every((p) => value.permissions.includes(p));
 

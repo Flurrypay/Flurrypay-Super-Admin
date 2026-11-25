@@ -302,12 +302,10 @@ export function AdministratorDetailPage({ adminId }: { adminId: string }) {
                       Reinstate
                     </DropdownMenuItem>
                   ) : (
-                    !isSuper && (
-                      <DropdownMenuItem variant="destructive" onSelect={open("suspend")}>
-                        <PauseCircleIcon aria-hidden />
-                        Suspend
-                      </DropdownMenuItem>
-                    )
+                    <DropdownMenuItem variant="destructive" onSelect={open("suspend")}>
+                      <PauseCircleIcon aria-hidden />
+                      Suspend
+                    </DropdownMenuItem>
                   )}
                   <DropdownMenuItem variant="destructive" onSelect={open("remove")}>
                     <Trash2Icon aria-hidden />

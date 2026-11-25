@@ -74,7 +74,7 @@ export function StrandedView() {
   const canResolve =
     hasPermission(admin, "wallets.withdraw") ||
     hasPermission(admin, "transactions.reverse") ||
-    admin?.role === "executive";
+    admin.role === "executive";
   const canViewUsers = hasPermission(admin, "users.view");
   const [includeResolved, setIncludeResolved] = useState(false);
   const [pending, setPending] = useState<{ row: StrandedTransfer; action: Resolution } | null>(

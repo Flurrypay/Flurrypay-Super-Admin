@@ -22,7 +22,6 @@ import {
   doesRegistryNameMatchAccount,
   type KycLevel,
   type KycProfile,
-  overrideUserLimit,
   rejectKycLevel,
 } from "./api";
 import { KycDocument } from "./kyc-document";
