@@ -53,6 +53,7 @@ import { useAdmin } from "@/features/auth/admin-context";
 import {
   type AdminPermission,
   isAdminRole,
+  isSuperAdmin,
   PERMISSION_INFO,
   ROLE_INFO,
 } from "@/features/auth/permissions";
@@ -252,6 +253,10 @@ export function AdministratorDetailPage({ adminId }: { adminId: string }) {
         actions={
           isSelf ? (
             <p className="text-xs text-muted-foreground">You can&apos;t change your own access.</p>
+          ) : !isSuperAdmin(me) ? (
+            <p className="text-xs text-muted-foreground">Only the primary Super Admin can manage administrator access.</p>
+          ) : isSuper ? (
+            <p className="text-xs text-muted-foreground">The primary Super Admin cannot be modified or removed.</p>
           ) : (
             <>
               <Button

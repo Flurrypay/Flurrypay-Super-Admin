@@ -15,9 +15,11 @@ import { resolveStatus, StatusBadge } from "@/components/status/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAdmin } from "@/features/auth/admin-context";
 import {
   ADMIN_PERMISSIONS,
   type AdminPermission,
+  isSuperAdmin,
   PERMISSION_INFO,
   ROLE_INFO,
 } from "@/features/auth/permissions";
@@ -140,6 +142,7 @@ function buildColumns(roleNames: ReadonlyMap<string, string>): DataColumn<AdminA
 }
 
 export function AdministratorsView() {
+  const me = useAdmin();
   const router = useRouter();
   const result = useQuery({
     queryKey: administratorsQueryKey,
@@ -166,7 +169,7 @@ export function AdministratorsView() {
             Roles
           </Link>
         </Button>
-        <InviteDialog />
+        {isSuperAdmin(me) && <InviteDialog />}
       </div>
       <DataTable
         label="Administrators"

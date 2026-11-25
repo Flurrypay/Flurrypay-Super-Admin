@@ -5,6 +5,7 @@ import { ShieldAlertIcon } from "lucide-react";
 import Link from "next/link";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -14,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  ADMIN_PERMISSIONS,
   ADMIN_ROLES,
   type AdminPermission,
   type AdminRole,
@@ -56,28 +58,39 @@ export function AccessForm({
     <div className="grid gap-4">
       <div className="grid gap-1.5">
         <Label htmlFor="access-role">Role</Label>
-        <Select
-          value={value.role}
-          onValueChange={(role) => {
-            onChange({
-              role: role as AdminRole,
-              permissions: role === "superAdmin" ? [] : value.permissions,
-              customRoleId: role === "superAdmin" ? null : value.customRoleId,
-            });
-          }}
-        >
-          <SelectTrigger id="access-role">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ADMIN_ROLES.map((role) => (
-              <SelectItem key={role} value={role}>
-                {ROLE_INFO[role].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">{ROLE_INFO[value.role].description}</p>
+        {isSuper ? (
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-semibold text-primary">Super Admin (Primary Account)</span>
+            <span className="text-xs text-muted-foreground">Cannot be demoted</span>
+          </div>
+        ) : (
+          <Select
+            value={value.role}
+            onValueChange={(role) => {
+              onChange({
+                role: role as AdminRole,
+                permissions: role === "superAdmin" ? [] : value.permissions,
+                customRoleId: role === "superAdmin" ? null : value.customRoleId,
+              });
+            }}
+          >
+            <SelectTrigger id="access-role">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ADMIN_ROLES.filter((r) => r !== "superAdmin").map((role) => (
+                <SelectItem key={role} value={role}>
+                  {ROLE_INFO[role].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {isSuper
+            ? "Only one Super Admin exists on FlurryPay (admin@flurrypay.io) and holds administrative management authority."
+            : ROLE_INFO[value.role].description}
+        </p>
       </div>
 
       {isSuper ? (
@@ -139,7 +152,45 @@ export function AccessForm({
             </p>
           </div>
           <div className="grid gap-1.5">
-            <Label>Permissions</Label>
+            <div className="flex items-center justify-between">
+              <Label>Permissions</Label>
+              {!customRole && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-primary hover:text-primary/80"
+                    onClick={() => {
+                      onChange({
+                        ...value,
+                        permissions: grantable(ADMIN_PERMISSIONS),
+                        customRoleId: null,
+                      });
+                    }}
+                  >
+                    Grant all operational permissions
+                  </Button>
+                  {value.permissions.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        onChange({
+                          ...value,
+                          permissions: [],
+                          customRoleId: null,
+                        });
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
             <PermissionPicker
               value={value.permissions}
               disabled={Boolean(customRole)}
