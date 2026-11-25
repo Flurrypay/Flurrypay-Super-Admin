@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarIcon, MessagesSquareIcon, SendIcon, UserIcon } from "lucide-react";
+import { CalendarIcon, ImageIcon, MessagesSquareIcon, SendIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { useHasPermission } from "@/features/auth/admin-context";
 import { UpdateDobDialog } from "@/features/users/update-dob-dialog";
 import { getUserMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
@@ -55,7 +54,6 @@ interface Props {
  * exists — the query keys below are already the right invalidation boundary.
  */
 export function ChatPanel({ state, setState }: Props) {
-  const canReply = useHasPermission("support.reply");
   const [page, setPage] = useState(1);
 
   const rooms = useQuery({
@@ -80,8 +78,9 @@ export function ChatPanel({ state, setState }: Props) {
         />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[22rem_1fr]">
-        <div className="grid content-start gap-2">
+      <div className="grid gap-3 lg:grid-cols-[22rem_1fr] h-[calc(100vh-14rem)] min-h-[580px]">
+        {/* Left column: ONLY the user list scrolls */}
+        <div className="flex h-full flex-col overflow-hidden">
           {rooms.isPending && (
             <div className="grid gap-2">
               {[0, 1, 2, 3].map((i) => (
@@ -104,20 +103,22 @@ export function ChatPanel({ state, setState }: Props) {
             />
           )}
           {rooms.data && rooms.data.rows.length > 0 && (
-            <ul className="divide-y overflow-hidden rounded-md border bg-card">
-              {rooms.data.rows.map((room) => (
-                <li key={room.roomId}>
-                  <RoomButton
-                    room={room}
-                    active={room.roomId === selected}
-                    onSelect={() => void setState({ room: room.roomId })}
-                  />
-                </li>
-              ))}
-            </ul>
+            <div className="flex-1 overflow-y-auto rounded-md border bg-card">
+              <ul className="divide-y">
+                {rooms.data.rows.map((room) => (
+                  <li key={room.roomId}>
+                    <RoomButton
+                      room={room}
+                      active={room.roomId === selected}
+                      onSelect={() => void setState({ room: room.roomId })}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {rooms.data && rooms.data.total > rooms.data.rows.length && (
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <div className="flex-none pt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <Button
                 variant="outline"
                 size="sm"
@@ -145,17 +146,20 @@ export function ChatPanel({ state, setState }: Props) {
           )}
         </div>
 
-        {selected ? (
-          <Conversation roomId={selected} canReply={canReply} />
-        ) : (
-          <div className="rounded-md border bg-card">
-            <EmptyState
-              icon={MessagesSquareIcon}
-              title="Pick a conversation"
-              description="Choose a customer on the left to read the thread and reply."
-            />
-          </div>
-        )}
+        {/* Right column: Chatbox does NOT scroll off the page */}
+        <div className="h-full overflow-hidden">
+          {selected ? (
+            <Conversation roomId={selected} />
+          ) : (
+            <div className="h-full flex items-center justify-center rounded-md border bg-card">
+              <EmptyState
+                icon={MessagesSquareIcon}
+                title="Pick a conversation"
+                description="Choose a customer on the left to read the thread and reply."
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -208,9 +212,11 @@ function RoomButton({
   );
 }
 
-function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean }) {
+function Conversation({ roomId }: { roomId: string }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [showImageInput, setShowImageInput] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = useQuery({
@@ -254,8 +260,8 @@ function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean 
   const trimmed = draft.trim();
 
   return (
-    <div className="grid grid-rows-[auto_1fr_auto] rounded-md border bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+    <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
+      <header className="flex-none flex flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2.5 z-10">
         <div className="grid leading-tight">
           <p className="text-sm font-medium">{customerName}</p>
           {customer && <p className="text-xs text-muted-foreground">{customer.email}</p>}
@@ -281,7 +287,8 @@ function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean 
         )}
       </header>
 
-      <div className="max-h-[28rem] min-h-48 overflow-y-auto px-4 py-3">
+      {/* Messages area — scrollable inside */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0 space-y-2">
         {conversation.isPending && (
           <div className="grid gap-2">
             {[0, 1, 2].map((i) => (
@@ -353,51 +360,95 @@ function Conversation({ roomId, canReply }: { roomId: string; canReply: boolean 
         <div ref={endRef} />
       </div>
 
-      <footer className="border-t px-4 py-3">
-        {canReply ? (
-          <div className="grid gap-2">
-            <label htmlFor="chat-reply" className="sr-only">
-              Reply to {customerName}
-            </label>
-            <Textarea
-              id="chat-reply"
-              rows={2}
-              value={draft}
-              placeholder="Type a reply…"
-              onChange={(event) => {
-                setDraft(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                // Enter sends, Shift+Enter makes a new line — what every chat
-                // does, and what people will try first.
-                if (event.key === "Enter" && !event.shiftKey && trimmed && !send.isPending) {
-                  event.preventDefault();
-                  send.mutate(trimmed);
+      {/* Footer — always anchored at the bottom of the chatbox */}
+      <footer className="flex-none border-t bg-card px-4 py-3 z-10">
+        {showImageInput && (
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              type="url"
+              className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary"
+              placeholder="Paste photo URL (https://...) to send photo to customer..."
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && imageUrl.trim()) {
+                  e.preventDefault();
+                  send.mutate(imageUrl.trim());
+                  setImageUrl("");
+                  setShowImageInput(false);
                 }
               }}
             />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
+            <Button
+              size="sm"
+              disabled={!imageUrl.trim() || send.isPending}
+              onClick={() => {
+                if (imageUrl.trim()) {
+                  send.mutate(imageUrl.trim());
+                  setImageUrl("");
+                  setShowImageInput(false);
+                }
+              }}
+            >
+              Send Photo
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowImageInput(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+
+        <div className="grid gap-2">
+          <label htmlFor="chat-reply" className="sr-only">
+            Reply to {customerName}
+          </label>
+          <Textarea
+            id="chat-reply"
+            rows={2}
+            value={draft}
+            placeholder="Type a reply to customer…"
+            onChange={(event) => {
+              setDraft(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && trimmed && !send.isPending) {
+                event.preventDefault();
+                send.mutate(trimmed);
+              }
+            }}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setShowImageInput((prev) => !prev)}
+              >
+                <ImageIcon aria-hidden className="mr-1 h-3.5 w-3.5" />
+                Attach Photo
+              </Button>
+              <span className="text-xs text-muted-foreground hidden sm:inline">
                 Enter sends · Shift + Enter for a new line
               </span>
-              <Button
-                size="sm"
-                disabled={trimmed.length === 0 || send.isPending}
-                onClick={() => {
-                  send.mutate(trimmed);
-                }}
-              >
-                <SendIcon aria-hidden />
-                {send.isPending ? "Sending…" : "Send"}
-              </Button>
             </div>
+            <Button
+              size="sm"
+              disabled={trimmed.length === 0 || send.isPending}
+              onClick={() => {
+                send.mutate(trimmed);
+              }}
+            >
+              <SendIcon aria-hidden className="mr-1.5 h-3.5 w-3.5" />
+              {send.isPending ? "Sending…" : "Send"}
+            </Button>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            You can read this conversation but not reply. Replying needs the &ldquo;Reply to
-            support&rdquo; permission.
-          </p>
-        )}
+        </div>
       </footer>
     </div>
   );
