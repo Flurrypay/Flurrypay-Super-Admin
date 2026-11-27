@@ -1,15 +1,16 @@
 "use client";
 
-import { InboxIcon, MessagesSquareIcon } from "lucide-react";
+import { InboxIcon, MessagesSquareIcon, SendIcon } from "lucide-react";
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { SUPPORT_FILTERS, SUPPORT_TYPES } from "./api";
+import { BroadcastsView } from "./broadcasts-view";
 import { ChatPanel } from "./chat-panel";
 import { InboxPanel } from "./inbox-panel";
 
-const TABS = ["inbox", "chat"] as const;
+const TABS = ["inbox", "chat", "broadcasts"] as const;
 
 /**
  * Both ways a customer reaches support, in one place.
@@ -58,12 +59,19 @@ export function SupportView() {
           <MessagesSquareIcon aria-hidden />
           Live chat
         </TabsTrigger>
+        <TabsTrigger value="broadcasts">
+          <SendIcon aria-hidden />
+          Broadcasts
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="inbox">
         <InboxPanel state={state} setState={setState} />
       </TabsContent>
       <TabsContent value="chat">
         <ChatPanel state={state} setState={setState} />
+      </TabsContent>
+      <TabsContent value="broadcasts">
+        <BroadcastsView />
       </TabsContent>
     </Tabs>
   );

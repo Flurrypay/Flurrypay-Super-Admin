@@ -186,11 +186,21 @@ export type UserActivity = z.output<typeof activitySchema>;
 
 export function fetchUserActivity(
   id: string,
-  { limit, offset }: { limit: number; offset: number },
+  {
+    limit,
+    offset,
+    action,
+    search,
+  }: { limit: number; offset: number; action?: string; search?: string },
   signal?: AbortSignal,
 ) {
   return adminApi.get(`${core}/user-activity/${encodeURIComponent(id)}`, {
-    query: { limit, offset },
+    query: {
+      limit,
+      offset,
+      action: action && action !== "ALL" ? action : undefined,
+      search: search?.trim() || undefined,
+    },
     schema: z.object({ logs: z.array(activitySchema), total: z.number() }),
     signal,
   });
@@ -494,4 +504,106 @@ export function updateUserDateOfBirth(userId: string, dateOfBirth: string, reaso
     dateOfBirth,
     reason,
   });
+}
+
+/* ─── Referrals ──────────────────────────────────────────────────────────── */
+
+export const referralRewardSchema = z.object({
+  id: z.string(),
+  type: z.string().catch(""),
+  amountNaira: decimal,
+  creditedAt: timestamp,
+  sourceTradeId: nullableString,
+  dayNumber: z.number().catch(1),
+});
+export type ReferralReward = z.output<typeof referralRewardSchema>;
+
+export const referredFriendSchema = z.object({
+  referredUserId: z.string(),
+  referredFirstName: z.string().catch(""),
+  referredLastName: z.string().catch(""),
+  referredEmail: z.string().catch(""),
+  referredPhoneNumber: nullableString,
+  referredWalletBalanceNaira: decimal.optional().catch("0"),
+  referredIsConfirmed: z.boolean().catch(false),
+  referredLevel: z.number().catch(0),
+  signupBonusStatus: z.string().catch(""),
+  signupBonusCreditedAt: timestamp,
+  firstQualifyingTradeAt: timestamp,
+  pendingBonusNaira: decimal.optional().catch("0"),
+  lifetimeEarnedNaira: decimal.optional().catch("0"),
+  lifetimeCapNaira: decimal.optional().catch("0"),
+  qualifyingVolumeNaira: decimal.optional().catch("0"),
+  qualifyingThresholdNaira: decimal.nullable().catch(null),
+  revenueShareEndsAt: timestamp,
+  createdAt: timestamp,
+  windowStatus: z.string().catch(""),
+  daysRemaining: z.number().catch(0),
+  currentDayNumber: z.number().catch(0),
+  revenueShareEarnedNaira: decimal.optional().catch("0"),
+  revenueShareTradesCount: z.number().catch(0),
+  rewards: z.array(referralRewardSchema).catch([]),
+});
+export type ReferredFriend = z.output<typeof referredFriendSchema>;
+
+export const userReferralSummarySchema = z.object({
+  referralCode: nullableString,
+  lifetimeEarnedNaira: decimal.catch("0"),
+  pendingReferralBonusNaira: decimal.catch("0"),
+  overspendOwedNaira: decimal.catch("0"),
+  pendingFriendsCount: z.number().catch(0),
+  activeFriendsCount: z.number().catch(0),
+  referrals: z.array(referredFriendSchema).catch([]),
+  welcomeBonus: z
+    .object({
+      status: z.string().catch(""),
+      amountNaira: decimal.catch("0"),
+      qualifyingVolumeNaira: decimal.catch("0"),
+      thresholdNaira: decimal.nullable().catch(null),
+      creditedAt: timestamp,
+      referrerId: nullableString,
+      referrerName: nullableString,
+      referrerEmail: nullableString,
+      isDirectSignup: z.boolean().optional(),
+    })
+    .nullable()
+    .catch(null),
+});
+export type UserReferralSummary = z.output<typeof userReferralSummarySchema>;
+
+export function fetchUserReferrals(userId: string, signal?: AbortSignal) {
+  return adminApi.get(`${adminPaths.core}/referrals/user/${encodeURIComponent(userId)}`, {
+    schema: userReferralSummarySchema,
+    signal,
+  });
+}
+
+/* ─── Direct user support chat ───────────────────────────────────────────── */
+
+export const directChatMessageSchema = z.object({
+  id: z.string(),
+  senderId: z.string(),
+  chatRoomId: z.string().catch(""),
+  roomId: z.string().catch(""),
+  message: z.string(),
+  read: z.boolean().catch(false),
+  createdAt: z.string(),
+});
+export type DirectChatMessage = z.output<typeof directChatMessageSchema>;
+
+export const directChatResponseSchema = z.object({
+  success: z.boolean().catch(true),
+  roomId: z.string(),
+  messages: z.array(directChatMessageSchema).catch([]),
+});
+export type DirectChatResponse = z.output<typeof directChatResponseSchema>;
+
+export function startDirectChat(userId: string) {
+  return adminApi.post(
+    `${adminPaths.chat}/admin/start-chat/${encodeURIComponent(userId)}`,
+    undefined,
+    {
+      schema: directChatResponseSchema,
+    },
+  );
 }

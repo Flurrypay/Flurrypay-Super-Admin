@@ -1,15 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ChevronDownIcon,
-  CircleCheckIcon,
-  ClockIcon,
-  HourglassIcon,
-  PackageCheckIcon,
-  Undo2Icon,
-  WalletIcon,
-} from "lucide-react";
+import { CircleCheckIcon, ClockIcon, HourglassIcon, WalletIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,17 +14,12 @@ import { DateTime } from "@/components/format/date-time";
 import { Freshness } from "@/components/states/freshness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { useAdmin } from "@/features/auth/admin-context";
 import { hasPermission } from "@/features/auth/permissions";
 import { Metric } from "@/features/overview/metric";
 import { transactionTypeLabel } from "@/features/transactions/labels";
+import { ResolvePendingDialog } from "@/features/transactions/resolve-pending-dialog";
 import { formatAmount, humanizeEnum } from "@/lib/format";
 
 import {
@@ -80,6 +67,7 @@ export function StrandedView() {
   const [pending, setPending] = useState<{ row: StrandedTransfer; action: Resolution } | null>(
     null,
   );
+  const [resolveRow, setResolveRow] = useState<StrandedTransfer | null>(null);
 
   const result = useQuery({
     queryKey: ["stranded", { includeResolved }],
@@ -229,39 +217,16 @@ export function StrandedView() {
         r.alreadyRefunded ? (
           <span className="text-xs text-muted-foreground">Resolved</span>
         ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
-              >
-                Resolve
-                <ChevronDownIcon aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => {
-                  setPending({ row: r, action: "delivered" });
-                }}
-              >
-                <PackageCheckIcon aria-hidden />
-                Mark as delivered
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  setPending({ row: r, action: "refund" });
-                }}
-              >
-                <Undo2Icon aria-hidden />
-                Refund to customer
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              setResolveRow(r);
+            }}
+          >
+            Resolve
+          </Button>
         ),
     });
   }
@@ -371,6 +336,22 @@ export function StrandedView() {
             : Promise.resolve()
         }
       />
+
+      {resolveRow && (
+        <ResolvePendingDialog
+          reference={resolveRow.reference}
+          amount={resolveRow.owedNaira}
+          customerName={resolveRow.fullName || resolveRow.email}
+          open
+          onOpenChange={(next) => {
+            if (!next) setResolveRow(null);
+          }}
+          onSuccess={() => {
+            setResolveRow(null);
+            void queryClient.invalidateQueries({ queryKey: ["stranded"] });
+          }}
+        />
+      )}
     </div>
   );
 }

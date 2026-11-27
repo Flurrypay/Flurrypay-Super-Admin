@@ -5,7 +5,9 @@ import {
   ActivityIcon,
   ArrowLeftRightIcon,
   ClipboardListIcon,
+  GiftIcon,
   LayoutListIcon,
+  MessageSquareIcon,
   ScanFaceIcon,
   UserXIcon,
   WalletIcon,
@@ -36,10 +38,21 @@ import { userDisplayName } from "./queries";
 import { StatementDialog } from "./statement-dialog";
 import { UserActions } from "./user-actions";
 import { UserActivity } from "./user-activity";
+import { UserDirectChat } from "./user-direct-chat";
 import { UserOverview } from "./user-overview";
+import { UserReferrals } from "./user-referrals";
 import { UserWallets } from "./user-wallets";
 
-const TABS = ["overview", "kyc", "wallets", "transactions", "activity", "audit"] as const;
+const TABS = [
+  "overview",
+  "kyc",
+  "wallets",
+  "transactions",
+  "activity",
+  "referrals",
+  "message",
+  "audit",
+] as const;
 
 export function UserDetailPage({ userId }: { userId: string }) {
   const admin = useAdmin();
@@ -156,6 +169,14 @@ export function UserDetailPage({ userId }: { userId: string }) {
             <ActivityIcon aria-hidden />
             Activity
           </TabsTrigger>
+          <TabsTrigger value="referrals">
+            <GiftIcon aria-hidden />
+            Referrals
+          </TabsTrigger>
+          <TabsTrigger value="message">
+            <MessageSquareIcon aria-hidden />
+            Message
+          </TabsTrigger>
           {canAudit && (
             <TabsTrigger value="audit">
               <ClipboardListIcon aria-hidden />
@@ -181,6 +202,12 @@ export function UserDetailPage({ userId }: { userId: string }) {
         )}
         <TabsContent value="activity">
           <UserActivity userId={userId} />
+        </TabsContent>
+        <TabsContent value="referrals">
+          <UserReferrals userId={userId} />
+        </TabsContent>
+        <TabsContent value="message">
+          <UserDirectChat userId={userId} user={data} />
         </TabsContent>
         {canAudit && (
           <TabsContent value="audit">

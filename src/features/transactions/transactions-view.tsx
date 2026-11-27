@@ -63,14 +63,13 @@ import {
 import { transactionColumns } from "./columns";
 import { ClearFlagDialog, FlagTransactionDialog } from "./flag-dialogs";
 import { FLAG_SEVERITY_LABEL, TRANSACTION_STATUS, TRANSACTION_TYPE } from "./labels";
+import { ResolvePendingDialog } from "./resolve-pending-dialog";
 import { TransactionDetails } from "./transaction-details";
 
 const DEFAULT_SORT = { key: "createdAt", direction: "desc" } as const;
 /** GET /transactions/admin/all supports a maximum limit of 200. */
 const EXPORT_PAGE_SIZE = 200;
 const EXPORT_MAX_ROWS = 10_000;
-
-type ResolveAction = "retry" | "resolve" | "refund";
 
 type AssetType = "FIAT" | "CRYPTO";
 
@@ -228,45 +227,16 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
 
   const openFlags = flagSummary.data?.total ?? 0;
 
-  const providerStatusQuery = useQuery({
-    queryKey: ["provider-status", resolveTx?.id],
-    queryFn: () => {
-      if (!resolveTx?.id) return Promise.resolve(null);
-      return adminApi.get(
-        `${adminPaths.transactions}/${encodeURIComponent(resolveTx.id)}/provider-status`,
-      );
-    },
-    enabled: resolveOpen && Boolean(resolveTx?.id),
-    retry: 1,
-  });
-
-  const resolveMutation = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: ResolveAction }) => {
-      return adminApi.post(`${adminPaths.transactions}/${encodeURIComponent(id)}/${action}`);
-    },
-    onSuccess: async () => {
-      toast.success("Transaction action completed successfully.");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
-        queryClient.invalidateQueries({ queryKey: ["transaction-flags"] }),
-        queryClient.invalidateQueries({ queryKey: ["provider-status", resolveTx?.id] }),
-      ]);
-      closeResolveDialog();
-    },
-    onError: (error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : "Unable to process the transaction action.";
-      toast.error(message);
-    },
-  });
-
   const columns = useMemo((): DataColumn<Transaction>[] => {
     const baseColumns = transactionColumns({ canViewUsers });
     const actionColumn: DataColumn<Transaction> = {
       id: "actions",
       header: "",
       cell: (tx: Transaction) => {
-        if (tx.status !== "FAILED") return null;
+        const isResolvable =
+          (tx.status === "PENDING" || tx.status === "PROCESSING" || tx.status === "FAILED") &&
+          !tx.reversedAt;
+        if (!isResolvable) return null;
         return (
           <div className="flex gap-1">
             <Button
@@ -599,103 +569,24 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
         )}
       </Sheet>
 
-      {/* Resolve failed transaction sheet */}
-      <Sheet
-        open={resolveOpen}
-        onOpenChange={(open) => {
-          if (!open && !resolveMutation.isPending) closeResolveDialog();
-        }}
-      >
-        {resolveTx && (
-          <SheetContent className="sm:max-w-xl">
-            <SheetHeader>
-              <SheetTitle>Resolve Transaction</SheetTitle>
-              <SheetDescription>
-                Resolve failed transaction <span className="font-mono">{resolveTx.id}</span>
-              </SheetDescription>
-            </SheetHeader>
-            <SheetBody>
-              <div className="grid gap-3">
-                <div className="rounded-md border p-3">
-                  <p className="mb-2 text-sm font-medium">Provider status</p>
-                  {providerStatusQuery.isLoading ? (
-                    <p className="text-sm text-muted-foreground">Checking provider status...</p>
-                  ) : providerStatusQuery.isError ? (
-                    <div className="grid gap-2">
-                      <p className="text-sm text-destructive">
-                        Unable to retrieve provider status.
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => void providerStatusQuery.refetch()}
-                      >
-                        Retry status check
-                      </Button>
-                    </div>
-                  ) : providerStatusQuery.data ? (
-                    <pre className="max-h-64 overflow-auto text-xs break-words whitespace-pre-wrap">
-                      {JSON.stringify(providerStatusQuery.data, null, 2)}
-                    </pre>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No provider status available.</p>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Only perform an action after verifying the transaction and its provider-side
-                  status.
-                </p>
-              </div>
-            </SheetBody>
-            <SheetFooter className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resolveMutation.isPending}
-                onClick={closeResolveDialog}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resolveMutation.isPending || providerStatusQuery.isLoading}
-                loading={resolveMutation.isPending && resolveMutation.variables.action === "retry"}
-                onClick={() => {
-                  resolveMutation.mutate({ id: resolveTx.id, action: "retry" });
-                }}
-              >
-                Retry
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resolveMutation.isPending}
-                loading={
-                  resolveMutation.isPending && resolveMutation.variables.action === "resolve"
-                }
-                onClick={() => {
-                  resolveMutation.mutate({ id: resolveTx.id, action: "resolve" });
-                }}
-              >
-                Mark Resolved
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={resolveMutation.isPending}
-                loading={resolveMutation.isPending && resolveMutation.variables.action === "refund"}
-                onClick={() => {
-                  resolveMutation.mutate({ id: resolveTx.id, action: "refund" });
-                }}
-              >
-                Refund
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        )}
-      </Sheet>
+      {/* Resolve pending/failed transaction dialog */}
+      {resolveTx && (
+        <ResolvePendingDialog
+          reference={resolveTx.reference || resolveTx.id}
+          amount={resolveTx.amount}
+          customerName={
+            resolveTx.user
+              ? `${resolveTx.user.firstName} ${resolveTx.user.lastName}`.trim() ||
+                resolveTx.user.email
+              : undefined
+          }
+          open={resolveOpen}
+          onOpenChange={(open) => {
+            if (!open) closeResolveDialog();
+          }}
+          onSuccess={closeResolveDialog}
+        />
+      )}
 
       {/* Debit wallet sheet */}
       <Sheet

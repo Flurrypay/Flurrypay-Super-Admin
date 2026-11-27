@@ -60,6 +60,46 @@ export function fetchStrandedSummary(signal?: AbortSignal) {
 
 const messageSchema = z.object({ message: z.string().catch("") });
 
+export const providerStatusSchema = z.object({
+  reference: z.string(),
+  transactionId: z.string().optional(),
+  amount: z.number().catch(0),
+  status: z.string().catch(""),
+  reversedAt: nullableString,
+  provider: z.string().catch(""),
+  merchantTxRef: nullableString.optional(),
+  providerStatus: z.string().catch(""),
+  rawStatus: nullableString.optional(),
+  providerMessage: nullableString.optional(),
+  settlementDebited: z.boolean().catch(false),
+  canRefund: z.boolean().catch(false),
+  customer: z
+    .object({
+      id: z.string().catch(""),
+      name: z.string().catch(""),
+      email: nullableString.optional(),
+      walletBalance: z.number().catch(0),
+    })
+    .optional(),
+  destination: z
+    .object({
+      bankName: nullableString.optional(),
+      accountNumber: nullableString.optional(),
+      accountName: nullableString.optional(),
+    })
+    .optional(),
+  recommendedAction: z.string().catch(""),
+});
+export type ProviderStatus = z.output<typeof providerStatusSchema>;
+
+/** Real-time ground truth query against the active payout provider switch. */
+export function checkProviderStatus(reference: string, signal?: AbortSignal) {
+  return adminApi.get(`${stranded}/${encodeURIComponent(reference)}/check-status`, {
+    schema: z.object({ data: providerStatusSchema }).transform((v) => v.data),
+    signal,
+  });
+}
+
 /** The provider did deliver it: corrects the status, moves no money (company withdrawal permission + 2FA). */
 export function markStrandedDelivered(
   reference: string,
@@ -84,7 +124,7 @@ export const reversalCandidateSchema = z.object({
   userid: z.string(),
   type: z.string().catch(""),
   amount: decimal,
-  fee: decimal.optional().catch(0),
+  fee: decimal.optional().catch("0"),
   principal: decimal.optional(),
   currency: nullableString,
   createdat: timestamp,

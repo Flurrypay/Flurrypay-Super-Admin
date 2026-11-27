@@ -271,3 +271,189 @@ export function isFromAdmin(message: ChatMessage, customerUserId: string | null)
   if (!customerUserId) return false;
   return message.senderId !== customerUserId;
 }
+
+/* ─── Broadcasts & Outreach ─────────────────────────────────────────────────── */
+
+export type DeliveryMethod = "EMAIL" | "PUSH" | "EMAIL_AND_PUSH";
+
+export interface AudienceOption {
+  value: string;
+  label: string;
+  hint: string;
+}
+
+export const AUDIENCE_GROUPS: { group: string; options: AudienceOption[] }[] = [
+  {
+    group: "Everyone",
+    options: [
+      { value: "ALL", label: "All users", hint: "Every registered account." },
+      {
+        value: "SPECIFIC",
+        label: "Specific user(s)",
+        hint: "Only the email addresses you list.",
+      },
+    ],
+  },
+  {
+    group: "Account status",
+    options: [
+      {
+        value: "ACTIVE",
+        label: "Email confirmed",
+        hint: "Accounts that have confirmed their email address.",
+      },
+      {
+        value: "INACTIVE",
+        label: "Email not confirmed",
+        hint: "Accounts that never confirmed their email address.",
+      },
+      {
+        value: "NEWLY_REGISTERED",
+        label: "Newly registered",
+        hint: "Signed up within the last 7 days.",
+      },
+    ],
+  },
+  {
+    group: "KYC",
+    options: [
+      {
+        value: "KYC_COMPLETED",
+        label: "KYC completed",
+        hint: "Reached KYC level 1 or verified BVN / ID.",
+      },
+      { value: "KYC_NOT_COMPLETED", label: "KYC not completed", hint: "Still on KYC level 0." },
+    ],
+  },
+  {
+    group: "Referrals",
+    options: [
+      {
+        value: "REFERRAL_USERS",
+        label: "Referrers (Invited others)",
+        hint: "Users who have referred at least one user.",
+      },
+      {
+        value: "REFERRED_USERS",
+        label: "Referred users (Invited by others)",
+        hint: "Users who registered using a referral link or code.",
+      },
+    ],
+  },
+  {
+    group: "Activity & Trading",
+    options: [
+      {
+        value: "WALLET_NOT_FUNDED",
+        label: "Wallet never funded",
+        hint: "No completed deposit or wallet funding, ever.",
+      },
+      {
+        value: "FIRST_TRANSACTION_COMPLETED",
+        label: "First transaction done",
+        hint: "Exactly one completed transaction so far.",
+      },
+      {
+        value: "NO_TRANSACTION_7_DAYS",
+        label: "No activity in 7 days",
+        hint: "No completed transaction in 7 days.",
+      },
+      {
+        value: "NO_TRANSACTION_30_DAYS",
+        label: "No activity in 30 days",
+        hint: "No completed transaction in 30 days.",
+      },
+      {
+        value: "CRYPTO_BUYERS",
+        label: "Crypto buyers",
+        hint: "Completed at least one crypto buy trade.",
+      },
+      {
+        value: "CRYPTO_SELLERS",
+        label: "Crypto sellers",
+        hint: "Completed at least one crypto sell trade.",
+      },
+      {
+        value: "BILL_PAYMENT_USERS",
+        label: "Bill payment users",
+        hint: "Paid for airtime, data, electricity or cable.",
+      },
+      {
+        value: "HIGH_VOLUME_TRADERS",
+        label: "High-volume traders",
+        hint: "₦1m+ naira volume in the last 30 days.",
+      },
+      {
+        value: "VIP_USERS",
+        label: "VIP (top spenders)",
+        hint: "₦5m+ naira volume in the last 30 days.",
+      },
+    ],
+  },
+];
+
+export const broadcastRecordSchema = z.object({
+  id: z.string(),
+  title: z.string().catch(""),
+  content: z.string().catch(""),
+  audience: z.string().catch("ALL"),
+  specificEmails: z.array(z.string()).nullish().catch(null),
+  deliveryMethod: z.string().catch("EMAIL_AND_PUSH"),
+  status: z.string().catch("sent"),
+  sentAt: nullableString,
+  recipientCount: z.number().nullish().catch(null),
+  successCount: z.number().nullish().catch(null),
+  failedCount: z.number().nullish().catch(null),
+  createdAt: z.string(),
+});
+export type BroadcastRecord = z.output<typeof broadcastRecordSchema>;
+
+export const broadcastHistorySchema = z.object({
+  items: z.array(broadcastRecordSchema).catch([]),
+  page: z.number().catch(1),
+  limit: z.number().catch(10),
+  total: z.number().catch(0),
+  totalPages: z.number().catch(1),
+});
+export type BroadcastHistoryResponse = z.output<typeof broadcastHistorySchema>;
+
+export function fetchBroadcastRecipientCount(audience: string, signal?: AbortSignal) {
+  return adminApi.get(`${adminPaths.core}/broadcast-recipient-count`, {
+    query: { audience },
+    schema: z.object({ count: z.number().catch(0) }).transform((v) => v.count),
+    signal,
+  });
+}
+
+export function sendBroadcastMessage(body: {
+  recipientType: string;
+  subject: string;
+  message: string;
+  deliveryMethod: DeliveryMethod;
+  specificEmails?: string[];
+}) {
+  return adminApi.post(`${adminPaths.core}/broadcast-message`, body);
+}
+
+export function fetchBroadcastHistory(page: number, limit: number, signal?: AbortSignal) {
+  return adminApi.get(`${adminPaths.core}/broadcast-history`, {
+    query: { page, limit },
+    schema: broadcastHistorySchema,
+    signal,
+  });
+}
+
+export function deleteBroadcastHistory(id: string) {
+  return adminApi.delete(`${adminPaths.core}/broadcast-history/${encodeURIComponent(id)}`);
+}
+
+export function fetchAutomatedPushStats(signal?: AbortSignal) {
+  return adminApi.get(`${adminPaths.core}/automated-pushes/stats`, {
+    schema: z.object({ data: z.unknown() }).transform((v) => v.data),
+    signal,
+  });
+}
+
+export function triggerAutomatedPushSweep(triggerId?: string) {
+  return adminApi.post(`${adminPaths.core}/automated-pushes/trigger`, { triggerId });
+}

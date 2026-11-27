@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ActivityIcon } from "lucide-react";
+import { ActivityIcon, SearchIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Pagination } from "@/components/data-table/pagination";
@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { Freshness } from "@/components/states/freshness";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { humanizeEnum } from "@/lib/format";
 
@@ -22,10 +23,11 @@ const SECURITY_ACTIONS =
 export function UserActivity({ userId }: { userId: string }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [search, setSearch] = useState("");
   const result = useQuery({
-    queryKey: ["user-activity", userId, page, pageSize],
+    queryKey: ["user-activity", userId, page, pageSize, search],
     queryFn: ({ signal }) =>
-      fetchUserActivity(userId, { limit: pageSize, offset: (page - 1) * pageSize }, signal),
+      fetchUserActivity(userId, { limit: pageSize, offset: (page - 1) * pageSize, search }, signal),
     placeholderData: keepPreviousData,
   });
 
@@ -34,7 +36,7 @@ export function UserActivity({ userId }: { userId: string }) {
     return (
       <ErrorState error={result.error} subject="activity" onRetry={() => void result.refetch()} />
     );
-  if (result.data.total === 0) {
+  if (result.data.total === 0 && !search) {
     return (
       <EmptyState
         icon={ActivityIcon}
@@ -46,7 +48,20 @@ export function UserActivity({ userId }: { userId: string }) {
 
   return (
     <div className="grid gap-3">
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full max-w-xs">
+          <SearchIcon className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search activity by action, IP, device..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
         <Freshness
           updatedAt={result.dataUpdatedAt}
           isFetching={result.isFetching}

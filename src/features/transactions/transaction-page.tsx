@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2Icon, FlagIcon, FlagOffIcon, SearchXIcon } from "lucide-react";
+import { CheckCircle2Icon, FlagIcon, FlagOffIcon, RefreshCwIcon, SearchXIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
@@ -16,6 +16,7 @@ import { useHasPermission } from "@/features/auth/admin-context";
 import { fetchTransactionByReference, isFlagged } from "./api";
 import { ClearFlagDialog, FlagTransactionDialog, ResolveDepositDialog } from "./flag-dialogs";
 import { transactionTypeLabel } from "./labels";
+import { ResolvePendingDialog } from "./resolve-pending-dialog";
 import { TransactionDetails } from "./transaction-details";
 
 export function TransactionPage({ reference }: { reference: string }) {
@@ -24,6 +25,7 @@ export function TransactionPage({ reference }: { reference: string }) {
   const canFlag = useHasPermission("compliance.review");
   const [flagDialog, setFlagDialog] = useState<"raise" | "clear" | null>(null);
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolvePendingOpen, setResolvePendingOpen] = useState(false);
   const result = useQuery({
     queryKey: ["transaction", reference],
     queryFn: ({ signal }) => fetchTransactionByReference(reference, signal),
@@ -99,6 +101,20 @@ export function TransactionPage({ reference }: { reference: string }) {
                   Resolve &amp; Credit
                 </Button>
               )}
+            {(tx.status === "PENDING" || tx.status === "PROCESSING" || tx.status === "FAILED") &&
+              !tx.reversedAt && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setResolvePendingOpen(true);
+                  }}
+                  className="bg-primary text-primary-foreground"
+                >
+                  <RefreshCwIcon aria-hidden className="mr-1.5 size-4" />
+                  Resolve Transfer
+                </Button>
+              )}
             {canFlag &&
               (isFlagged(tx) ? (
                 <Button
@@ -128,6 +144,16 @@ export function TransactionPage({ reference }: { reference: string }) {
       />
       <TransactionDetails tx={tx} canViewUsers={canViewUsers} />
       <ResolveDepositDialog tx={tx} open={resolveOpen} onOpenChange={setResolveOpen} />
+      <ResolvePendingDialog
+        reference={tx.reference ?? tx.id}
+        amount={tx.amount}
+        customerName={
+          tx.user ? `${tx.user.firstName} ${tx.user.lastName}`.trim() || tx.user.email : undefined
+        }
+        open={resolvePendingOpen}
+        onOpenChange={setResolvePendingOpen}
+        onSuccess={() => void result.refetch()}
+      />
       {canFlag && (
         <>
           <FlagTransactionDialog
