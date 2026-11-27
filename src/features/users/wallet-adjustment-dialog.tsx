@@ -48,9 +48,6 @@ export type AdjustmentAssetType = "fiat" | "crypto";
 /** The API rejects anything at or above this for NGN: `transactionAmount` is decimal(10,2). */
 const MAX_FIAT_AMOUNT = 100_000_000;
 
-/** Enough that "correction" or "error" alone will not do. */
-const MIN_NARRATION = 10;
-
 const SUPPORTED_CRYPTO_ASSETS: Array<{ ticker: string; name: string }> = [
   { ticker: "USDT", name: "Tether" },
   { ticker: "BTC", name: "Bitcoin" },
@@ -313,9 +310,6 @@ export function WalletAdjustmentDialog({
       return assetType === "fiat"
         ? "That is more Naira than the customer holds. The API will refuse it."
         : `That is more ${selectedCrypto.ticker} than the customer holds (${selectedCrypto.cryptoBalance} ${selectedCrypto.ticker}).`;
-    }
-    if (narration.trim().length < MIN_NARRATION) {
-      return `Write at least ${MIN_NARRATION} characters explaining why.`;
     }
     if (!password) return "Enter your account password.";
     if (!/^\d{6}$/.test(pin.trim())) return "Enter your 6-digit transaction PIN.";
@@ -587,7 +581,7 @@ export function WalletAdjustmentDialog({
 
       <Field
         id="adjustment-narration"
-        label="Why"
+        label="Why (optional)"
         hint="Goes into the wallet ledger, the audit log, and the customer's alert if you send one."
       >
         <Textarea
