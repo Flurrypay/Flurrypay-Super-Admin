@@ -85,7 +85,16 @@ export function ReversalsView() {
       id: "amount",
       header: "Amount",
       align: "right",
-      cell: (r) => <Amount value={r.amount} currency={r.currency} />,
+      cell: (r) => (
+        <span className="grid justify-items-end leading-tight">
+          <Amount value={r.amount} currency={r.currency} />
+          {Number(r.fee || 0) > 0 && (
+            <span className="text-xs text-muted-foreground">
+              incl. <Amount value={r.fee} currency={r.currency} /> fee
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       id: "status",
@@ -185,6 +194,9 @@ export function ReversalsView() {
               <span className="text-xs text-muted-foreground">
                 {pending.email ?? pending.firstname} ·{" "}
                 {formatAmount(pending.amount, pending.currency)}
+                {Number(pending.fee || 0) > 0
+                  ? ` (incl. ${formatAmount(pending.fee, pending.currency)} fee)`
+                  : ""}
               </span>
             </span>
           )

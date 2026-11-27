@@ -84,6 +84,8 @@ export const reversalCandidateSchema = z.object({
   userid: z.string(),
   type: z.string().catch(""),
   amount: decimal,
+  fee: decimal.optional().catch(0),
+  principal: decimal.optional(),
   currency: nullableString,
   createdat: timestamp,
   email: nullableString,
