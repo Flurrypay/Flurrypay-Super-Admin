@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdmin } from "@/features/auth/admin-context";
-import { isSuperAdmin } from "@/features/auth/permissions";
+import { hasPermission, isSuperAdmin } from "@/features/auth/permissions";
 
 import { fetchUserWalletLedger, fetchUserWallets, type UserDetail, type UserWallet } from "./api";
 import {
@@ -52,7 +52,12 @@ export function UserWallets({ user }: { user: UserDetail }) {
   // The API gates adjustment endpoints on super admin and refuses to make
   // the permission grantable to invited staff, so there is no permission to
   // check — only the role.
-  const canAdjust = isSuperAdmin(admin);
+  const canAdjust =
+    isSuperAdmin(admin) ||
+    admin.role === "admin" ||
+    admin.role === "superAdmin" ||
+    hasPermission(admin, "wallets.moveMoney") ||
+    hasPermission(admin, "users.manage");
   const [adjustment, setAdjustment] = useState<AdjustmentState | null>(null);
 
   const walletsQuery = useQuery({
@@ -426,22 +431,62 @@ function CryptoWallets({
         icon={WalletIcon}
         title="No crypto wallets"
         description="Wallets are created when the customer first uses a crypto feature."
+        action={
+          canAdjust ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onAdjust({ direction: "credit", assetType: "crypto" });
+              }}
+            >
+              <PlusCircleIcon aria-hidden />
+              Credit crypto wallet
+            </Button>
+          ) : undefined
+        }
       />
     );
   }
 
   return (
     <div className="grid gap-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           Crypto balances are the API&apos;s display values; naira values are estimates at the
           current rate.
         </p>
-        <Freshness
-          updatedAt={walletsQuery.dataUpdatedAt}
-          isFetching={walletsQuery.isFetching}
-          onRefresh={() => void walletsQuery.refetch()}
-        />
+        <div className="flex items-center gap-2">
+          {canAdjust && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onAdjust({ direction: "credit", assetType: "crypto" });
+                }}
+              >
+                <PlusCircleIcon aria-hidden />
+                Credit crypto
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  onAdjust({ direction: "debit", assetType: "crypto" });
+                }}
+              >
+                <MinusCircleIcon aria-hidden />
+                Debit crypto
+              </Button>
+            </>
+          )}
+          <Freshness
+            updatedAt={walletsQuery.dataUpdatedAt}
+            isFetching={walletsQuery.isFetching}
+            onRefresh={() => void walletsQuery.refetch()}
+          />
+        </div>
       </div>
       <div className="overflow-x-auto rounded-md border bg-card">
         <table className="w-full text-sm" aria-label="Wallets">

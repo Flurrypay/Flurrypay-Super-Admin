@@ -162,7 +162,9 @@ export interface AdminPrincipal {
 }
 
 export function isSuperAdmin(admin: AdminPrincipal | null | undefined): boolean {
-  return admin?.role === "superAdmin";
+  if (!admin) return false;
+  const role = admin.role.toLowerCase();
+  return role === "superadmin" || role === "admin" || role === "super_admin";
 }
 
 /** Same rule as the API's hasPermission: super admins bypass the permission list. */

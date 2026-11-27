@@ -4,8 +4,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BanIcon,
   ChevronDownIcon,
+  MinusCircleIcon,
   PauseCircleIcon,
   PlayCircleIcon,
+  PlusCircleIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
   ShieldIcon,
@@ -28,7 +30,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useHasPermission } from "@/features/auth/admin-context";
+import { useAdmin, useHasPermission } from "@/features/auth/admin-context";
+import { hasPermission, isSuperAdmin } from "@/features/auth/permissions";
 
 import {
   blockUser,
@@ -41,6 +44,7 @@ import {
   type UserDetail,
 } from "./api";
 import { userDisplayName } from "./queries";
+import { type AdjustmentDirection, WalletAdjustmentDialog } from "./wallet-adjustment-dialog";
 
 type ActionId =
   | "block"
@@ -172,9 +176,18 @@ const ACTIONS: Record<ActionId, ActionSpec> = {
 
 /** Account controls for one customer. Every action is confirmed and recorded by the API's audit log. */
 export function UserActions({ user }: { user: UserDetail }) {
+  const admin = useAdmin();
   const canManage = useHasPermission("users.manage");
+  const canAdjust =
+    isSuperAdmin(admin) ||
+    admin.role === "admin" ||
+    admin.role === "superAdmin" ||
+    hasPermission(admin, "wallets.moveMoney") ||
+    hasPermission(admin, "users.manage");
+
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<ActionId | null>(null);
+  const [adjustmentDirection, setAdjustmentDirection] = useState<AdjustmentDirection | null>(null);
 
   const mutation = useMutation({
     mutationFn: ({ action, values }: { action: ActionId; values: ConfirmValues }) =>
@@ -189,7 +202,7 @@ export function UserActions({ user }: { user: UserDetail }) {
     },
   });
 
-  if (!canManage) return null;
+  if (!canManage && !canAdjust) return null;
 
   const available: ActionId[] = [
     user.isBlocked ? "unblock" : "block",
@@ -227,10 +240,38 @@ export function UserActions({ user }: { user: UserDetail }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuLabel>Restrictions</DropdownMenuLabel>
-          {available.filter((id) => !ACTIONS[id].reason).map(item)}
-          {available.some((id) => !ACTIONS[id].reason) && <DropdownMenuSeparator />}
-          {available.filter((id) => ACTIONS[id].reason).map(item)}
+          {canAdjust && (
+            <>
+              <DropdownMenuLabel>Wallet</DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setAdjustmentDirection("credit");
+                }}
+              >
+                <PlusCircleIcon aria-hidden />
+                Credit wallet
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  setAdjustmentDirection("debit");
+                }}
+              >
+                <MinusCircleIcon aria-hidden />
+                Debit wallet
+              </DropdownMenuItem>
+              {canManage && <DropdownMenuSeparator />}
+            </>
+          )}
+
+          {canManage && (
+            <>
+              <DropdownMenuLabel>Restrictions</DropdownMenuLabel>
+              {available.filter((id) => !ACTIONS[id].reason).map(item)}
+              {available.some((id) => !ACTIONS[id].reason) && <DropdownMenuSeparator />}
+              {available.filter((id) => ACTIONS[id].reason).map(item)}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -259,6 +300,17 @@ export function UserActions({ user }: { user: UserDetail }) {
           pending ? mutation.mutateAsync({ action: pending, values }) : Promise.resolve()
         }
       />
+
+      {canAdjust && adjustmentDirection !== null && (
+        <WalletAdjustmentDialog
+          user={user}
+          direction={adjustmentDirection}
+          open
+          onOpenChange={(next) => {
+            if (!next) setAdjustmentDirection(null);
+          }}
+        />
+      )}
     </>
   );
 }
