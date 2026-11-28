@@ -39,6 +39,8 @@ const userBase = {
   referralBalance: decimal,
   welcomeBonus: decimal,
   transactionCount: z.coerce.number().catch(0),
+  totalTransactionVolume: decimal,
+  lifetimeVolume: decimal,
   createdAt: timestamp,
 };
 

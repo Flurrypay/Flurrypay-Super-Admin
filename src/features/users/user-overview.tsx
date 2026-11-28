@@ -77,6 +77,16 @@ export function UserOverview({ user }: { user: UserDetail }) {
               label: "Completed transactions",
               value: <span className="tabular-nums">{user.transactionCount}</span>,
             },
+            {
+              label: "Lifetime volume",
+              value: (
+                <Amount
+                  value={user.totalTransactionVolume ?? user.lifetimeVolume ?? "0"}
+                  currency="NGN"
+                  className="font-medium"
+                />
+              ),
+            },
           ]}
         />
         {(() => {

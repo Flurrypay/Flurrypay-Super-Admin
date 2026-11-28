@@ -24,6 +24,7 @@ import { DATE_PRESETS, resolveDateRange } from "@/components/filters/date-range"
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { SearchInput } from "@/components/filters/search-input";
 import { SelectFilter } from "@/components/filters/select-filter";
+import { Amount } from "@/components/format/amount";
 import { Freshness } from "@/components/states/freshness";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -312,6 +313,27 @@ export function TransactionsView({ userId, tableId = "transactions" }: Transacti
 
   return (
     <div className="grid gap-3">
+      {userId && (
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-card px-4 py-2.5 text-sm">
+          <div>
+            <span className="text-muted-foreground">Lifetime volume: </span>
+            <span className="font-semibold">
+              <Amount
+                value={
+                  result.data?.totals?.lifetimeVolume ?? result.data?.totals?.totalAmount ?? "0"
+                }
+                currency="NGN"
+              />
+            </span>
+          </div>
+          <div className="h-4 w-px bg-border" />
+          <div>
+            <span className="text-muted-foreground">Total completed transactions: </span>
+            <span className="font-semibold tabular-nums">{total}</span>
+          </div>
+        </div>
+      )}
+
       {/* Filters and toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput

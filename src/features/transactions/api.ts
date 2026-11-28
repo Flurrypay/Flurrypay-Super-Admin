@@ -206,10 +206,22 @@ const pageSchema = z
   .object({
     data: z.object({
       transactions: z.array(transactionSchema),
+      totals: z
+        .object({
+          totalAmount: decimal,
+          totalTransactions: z.number().nullish(),
+          lifetimeVolume: decimal,
+        })
+        .loose()
+        .nullish(),
       pagination: z.object({ total: z.number(), page: z.number(), limit: z.number() }),
     }),
   })
-  .transform(({ data }) => ({ rows: data.transactions, total: data.pagination.total }));
+  .transform(({ data }) => ({
+    rows: data.transactions,
+    total: data.pagination.total,
+    totals: data.totals,
+  }));
 
 export interface TransactionQuery {
   page: number;
